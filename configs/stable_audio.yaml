@@ -1,0 +1,6 @@
+name: stable_audio
+repo_id: stabilityai/stable-audio-open-1.0
+pipe:
+  num_inference_steps: 200
+  audio_end_in_s: 10
+  num_waveforms_per_prompt: 3

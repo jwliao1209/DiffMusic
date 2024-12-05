@@ -1,0 +1,6 @@
+name: audioldm2
+repo_id: cvssp/audioldm2
+pipe:
+  num_inference_steps: 200
+  audio_length_in_s: 10
+  num_waveforms_per_prompt: 3

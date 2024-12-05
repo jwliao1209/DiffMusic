@@ -1,0 +1,5 @@
+name: musicldm
+repo_id: ucsd-reach/musicldm
+pipe:
+  num_inference_steps: 10
+  audio_length_in_s: 5.0
