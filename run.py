@@ -4,10 +4,12 @@ from argparse import ArgumentParser, Namespace
 import scipy
 import torch
 import soundfile as sf
-from diffmusic.plpeline_audioldm2 import AudioLDM2Pipeline
-from diffmusic.pipeline_musicldm import MusicLDMPipeline
-from diffmusic.pipeline_stable_audio import StableAudioPipeline
 from omegaconf import OmegaConf
+
+from diffmusic.pipelines.plpeline_audioldm2 import AudioLDM2Pipeline
+from diffmusic.pipelines.pipeline_musicldm import MusicLDMPipeline
+from diffmusic.pipelines.pipeline_stable_audio import StableAudioPipeline
+from diffmusic.schedulers.scheduling_inpainting import DDIMInpaintingScheduler
 
 
 def parse_arguments() -> Namespace:
@@ -52,6 +54,7 @@ if __name__ == "__main__":
 
     # prepare the pipeline
     pipe = Pipeline.from_pretrained(config.repo_id, torch_dtype=torch.float16)
+    pipe.scheduler = DDIMInpaintingScheduler(**config.scheduler)
     pipe = pipe.to("cuda")
 
     # set the seed for generator
