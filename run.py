@@ -72,6 +72,9 @@ if __name__ == "__main__":
     # )
     transform = torchaudio.transforms.MelSpectrogram(
         sample_rate=16000,
+        n_fft=1024,
+        hop_length=160,
+        win_length=1024,
         n_mels=64
     )
     # transform = None
@@ -80,11 +83,9 @@ if __name__ == "__main__":
     print('Number of samples: ', len(loader))
 
     # run the generation
-    for i, (ref_wave, sr, duration) in enumerate(loader):
+    for i, (ref_wave, ref_mel_spectrogram, sr, duration) in enumerate(loader):
         config.pipe.audio_length_in_s = duration.item()
-        print('sr: ', sr)
-        print('ref_wave: ', ref_wave.shape)
-        print('duration: ', duration)
+        ref_wave = ref_wave[:, 0].half().to("cuda")
 
         audio = pipe(
             # latents=latent,
@@ -107,3 +108,5 @@ if __name__ == "__main__":
                 audio[0].T.float().cpu().numpy(),
                 pipe.vae.sampling_rate
             )
+
+        break

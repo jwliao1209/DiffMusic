@@ -57,7 +57,7 @@ class DDIMInpaintingScheduler(DDIMScheduler):
 
         waveform = vocoder(mel_spectrogram)
         # we always cast to float32 as this does not cause significant overhead and is compatible with bfloat16
-        waveform = waveform.cpu().float()
+        waveform = waveform.float()
         return waveform
 
     def step(
@@ -76,64 +76,58 @@ class DDIMInpaintingScheduler(DDIMScheduler):
         vae=None,
         vocoder=None,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
+        with torch.enable_grad():
+            pred_original_sample = super().step(
+                model_output=model_output,
+                timestep=timestep,
+                sample=sample,
+                eta=eta,
+                use_clipped_model_output=use_clipped_model_output,
+                generator=generator,
+                variance_noise=variance_noise,
+                return_dict=return_dict,
+            ).pred_original_sample
 
-        pred_original_sample = super().step(
-            model_output=model_output,
-            timestep=timestep,
-            sample=sample,
-            eta=eta,
-            use_clipped_model_output=use_clipped_model_output,
-            generator=generator,
-            variance_noise=variance_noise,
-            return_dict=return_dict,
-        ).pred_original_sample
+            timesteps_prev = timestep - self.config.num_train_timesteps // self.num_inference_steps
+            alpha_prod_t = self.alphas_cumprod[timestep]
+            beta_prod_t = 1 - alpha_prod_t
+            alpha_prod_t_prev = self.alphas_cumprod[timesteps_prev] if timesteps_prev >= 0 else self.final_alpha_cumprod
+            beta_prod_t_prev = 1 - alpha_prod_t_prev
 
-        timesteps_prev = timestep - self.config.num_train_timesteps // self.num_inference_steps
-        alpha_prod_t = self.alphas_cumprod[timestep]
-        beta_prod_t = 1 - alpha_prod_t
-        alpha_prod_t_prev = self.alphas_cumprod[timesteps_prev] if timesteps_prev >= 0 else self.final_alpha_cumprod
-        beta_prod_t_prev = 1 - alpha_prod_t_prev
+            noise_pred = (sample - (alpha_prod_t ** 0.5) * pred_original_sample) / (beta_prod_t ** 0.5)
+            prev_sample = (alpha_prod_t_prev ** 0.5) * pred_original_sample + (beta_prod_t_prev ** 0.5) * noise_pred
 
-        noise_pred = (sample - (alpha_prod_t ** 0.5) * pred_original_sample) / (beta_prod_t ** 0.5)
-        prev_sample = (alpha_prod_t_prev ** 0.5) * pred_original_sample + (beta_prod_t_prev ** 0.5) * noise_pred
+            # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-        # Guided diffusion posterior sampling using gradient-based methods
-        # pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample
-        # mel_spectrogram = vae.decode(pred_original_sample).sample
-        # pred_audio = self.mel_spectrogram_to_waveform(vocoder, mel_spectrogram)
-        # pred_audio = pred_audio[:, :original_waveform_length]
-        #
-        # mute_duration = random.randint(5000, 10000)
-        # start_ms = random.randint(0, max(0, original_waveform_length - mute_duration))
-        # end_ms = start_ms + mute_duration
-        #
-        # start_sample = start_ms * 16000 // 1000
-        # end_sample = end_ms * 16000 // 1000
-        #
-        # pred_audio = pred_audio.clone()
-        # pred_audio[start_sample:end_sample] = 0
-        #
-        # measurement = measurement.half().mean(dim=1, keepdim=True).to("cuda")
-        # measurement = measurement.clone().permute(0, 1, 3, 2)
-        # latent_measurement = vae.encode(measurement).latent_dist.sample() * vae.config.scaling_factor
-        # latent_measurement = 1 / vae.config.scaling_factor * latent_measurement
-        # mel_spectrogram_measurement = vae.decode(latent_measurement).sample
-        # gt_audio = self.mel_spectrogram_to_waveform(vocoder, mel_spectrogram_measurement)
-        # gt_audio = gt_audio[:, :original_waveform_length]
-        #
-        # gt_audio[start_sample:end_sample] = 0
+            # Guided diffusion posterior sampling using gradient-based methods
+            pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample
 
-        # print('gt_audio: ', gt_audio.shape)
-        # print('pred_audio: ', pred_audio.shape)
-        # difference = gt_audio - pred_audio
+            pred_mel_spectrogram = vae.decode(pred_original_sample).sample
 
-        # print('difference: ', difference)
+            pred_audio = self.mel_spectrogram_to_waveform(vocoder, pred_mel_spectrogram)
+            pred_audio = pred_audio[:, :original_waveform_length]
 
-        # difference = measurement - self.operator.forward(x_0_hat, **kwargs)
-        # norm = torch.linalg.norm(difference)
-        # norm_grad = torch.autograd.grad(outputs=norm, inputs=x_prev)[0]
+            # (1, 48000)
+            start_sample = 200000
+            end_sample = 300000
+
+            # create mask
+            mask = torch.ones_like(pred_audio).to(pred_audio.device)
+            mask[:, start_sample: end_sample] = 0.
+
+            pred_audio = pred_audio * mask
+            measurement = measurement * mask
+
+            difference = measurement - pred_audio
+            norm = torch.linalg.norm(difference)
+
+            norm_grad = torch.autograd.grad(outputs=norm, inputs=sample)[0]
+
+            prev_sample -= norm_grad
+
+            # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
         return DDIMSchedulerOutput(
             prev_sample=prev_sample,
-            pred_original_sample=pred_original_sample
-        )
+            pred_original_sample=pred_original_sample,
+        ), norm

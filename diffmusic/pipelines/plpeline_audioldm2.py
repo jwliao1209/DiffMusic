@@ -44,7 +44,6 @@ from diffusers.utils.torch_utils import randn_tensor
 from diffusers import AudioPipelineOutput, DiffusionPipeline
 from diffusers import AudioLDM2ProjectionModel, AudioLDM2UNet2DConditionModel
 
-
 if is_librosa_available():
     import librosa
 
@@ -116,10 +115,10 @@ EXAMPLE_DOC_STRING = """
 
 
 def prepare_inputs_for_generation(
-    inputs_embeds,
-    attention_mask=None,
-    past_key_values=None,
-    **kwargs,
+        inputs_embeds,
+        attention_mask=None,
+        past_key_values=None,
+        **kwargs,
 ):
     if past_key_values is not None:
         # only last token for inputs_embeds if past is defined in kwargs
@@ -179,18 +178,18 @@ class AudioLDM2Pipeline(DiffusionPipeline):
     """
 
     def __init__(
-        self,
-        vae: AutoencoderKL,
-        text_encoder: ClapModel,
-        text_encoder_2: Union[T5EncoderModel, VitsModel],
-        projection_model: AudioLDM2ProjectionModel,
-        language_model: GPT2Model,
-        tokenizer: Union[RobertaTokenizer, RobertaTokenizerFast],
-        tokenizer_2: Union[T5Tokenizer, T5TokenizerFast, VitsTokenizer],
-        feature_extractor: ClapFeatureExtractor,
-        unet: AudioLDM2UNet2DConditionModel,
-        scheduler: KarrasDiffusionSchedulers,
-        vocoder: SpeechT5HifiGan,
+            self,
+            vae: AutoencoderKL,
+            text_encoder: ClapModel,
+            text_encoder_2: Union[T5EncoderModel, VitsModel],
+            projection_model: AudioLDM2ProjectionModel,
+            language_model: GPT2Model,
+            tokenizer: Union[RobertaTokenizer, RobertaTokenizerFast],
+            tokenizer_2: Union[T5Tokenizer, T5TokenizerFast, VitsTokenizer],
+            feature_extractor: ClapFeatureExtractor,
+            unet: AudioLDM2UNet2DConditionModel,
+            scheduler: KarrasDiffusionSchedulers,
+            vocoder: SpeechT5HifiGan,
     ):
         super().__init__()
 
@@ -263,10 +262,10 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         self.final_offload_hook = hook
 
     def generate_language_model(
-        self,
-        inputs_embeds: torch.Tensor = None,
-        max_new_tokens: int = 8,
-        **model_kwargs,
+            self,
+            inputs_embeds: torch.Tensor = None,
+            max_new_tokens: int = 8,
+            **model_kwargs,
     ):
         """
 
@@ -305,20 +304,20 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         return inputs_embeds[:, -max_new_tokens:, :]
 
     def encode_prompt(
-        self,
-        prompt,
-        device,
-        num_waveforms_per_prompt,
-        do_classifier_free_guidance,
-        transcription=None,
-        negative_prompt=None,
-        prompt_embeds: Optional[torch.Tensor] = None,
-        negative_prompt_embeds: Optional[torch.Tensor] = None,
-        generated_prompt_embeds: Optional[torch.Tensor] = None,
-        negative_generated_prompt_embeds: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.LongTensor] = None,
-        negative_attention_mask: Optional[torch.LongTensor] = None,
-        max_new_tokens: Optional[int] = None,
+            self,
+            prompt,
+            device,
+            num_waveforms_per_prompt,
+            do_classifier_free_guidance,
+            transcription=None,
+            negative_prompt=None,
+            prompt_embeds: Optional[torch.Tensor] = None,
+            negative_prompt_embeds: Optional[torch.Tensor] = None,
+            generated_prompt_embeds: Optional[torch.Tensor] = None,
+            negative_generated_prompt_embeds: Optional[torch.Tensor] = None,
+            attention_mask: Optional[torch.LongTensor] = None,
+            negative_attention_mask: Optional[torch.LongTensor] = None,
+            max_new_tokens: Optional[int] = None,
     ):
         r"""
         Encodes the prompt into text encoder hidden states.
@@ -437,9 +436,9 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                 untruncated_ids = tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
 
                 if untruncated_ids.shape[-1] >= text_input_ids.shape[-1] and not torch.equal(
-                    text_input_ids, untruncated_ids
+                        text_input_ids, untruncated_ids
                 ):
-                    removed_text = tokenizer.batch_decode(untruncated_ids[:, tokenizer.model_max_length - 1 : -1])
+                    removed_text = tokenizer.batch_decode(untruncated_ids[:, tokenizer.model_max_length - 1: -1])
                     logger.warning(
                         f"The following part of your input was truncated because {text_encoder.config.model_type} can "
                         f"only handle sequences up to {tokenizer.model_max_length} tokens: {removed_text}"
@@ -689,19 +688,19 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         return extra_step_kwargs
 
     def check_inputs(
-        self,
-        prompt,
-        audio_length_in_s,
-        vocoder_upsample_factor,
-        callback_steps,
-        transcription=None,
-        negative_prompt=None,
-        prompt_embeds=None,
-        negative_prompt_embeds=None,
-        generated_prompt_embeds=None,
-        negative_generated_prompt_embeds=None,
-        attention_mask=None,
-        negative_attention_mask=None,
+            self,
+            prompt,
+            audio_length_in_s,
+            vocoder_upsample_factor,
+            callback_steps,
+            transcription=None,
+            negative_prompt=None,
+            prompt_embeds=None,
+            negative_prompt_embeds=None,
+            generated_prompt_embeds=None,
+            negative_generated_prompt_embeds=None,
+            attention_mask=None,
+            negative_attention_mask=None,
     ):
         min_audio_length_in_s = vocoder_upsample_factor * self.vae_scale_factor
         if audio_length_in_s < min_audio_length_in_s:
@@ -718,7 +717,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
             )
 
         if (callback_steps is None) or (
-            callback_steps is not None and (not isinstance(callback_steps, int) or callback_steps <= 0)
+                callback_steps is not None and (not isinstance(callback_steps, int) or callback_steps <= 0)
         ):
             raise ValueError(
                 f"`callback_steps` has to be a positive integer but is {callback_steps} of type"
@@ -766,7 +765,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
             if self.text_encoder_2.config.model_type == "vits":
                 raise ValueError("Cannot forward without transcription. Please make sure to" " have transcription")
         elif transcription is not None and (
-            not isinstance(transcription, str) and not isinstance(transcription, list)
+                not isinstance(transcription, str) and not isinstance(transcription, list)
         ):
             raise ValueError(f"`transcription` has to be of type `str` or `list` but is {type(transcription)}")
 
@@ -778,8 +777,8 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                     f"`negative_generated_prompt_embeds` {negative_generated_prompt_embeds.shape}."
                 )
             if (
-                negative_attention_mask is not None
-                and negative_attention_mask.shape != negative_prompt_embeds.shape[:2]
+                    negative_attention_mask is not None
+                    and negative_attention_mask.shape != negative_prompt_embeds.shape[:2]
             ):
                 raise ValueError(
                     "`attention_mask should have the same batch size and sequence length as `prompt_embeds`, but got:"
@@ -812,31 +811,31 @@ class AudioLDM2Pipeline(DiffusionPipeline):
     @torch.no_grad()
     @replace_example_docstring(EXAMPLE_DOC_STRING)
     def __call__(
-        self,
-        prompt: Union[str, List[str]] = None,
-        transcription: Union[str, List[str]] = None,
-        audio_length_in_s: Optional[float] = None,
-        num_inference_steps: int = 200,
-        guidance_scale: float = 3.5,
-        negative_prompt: Optional[Union[str, List[str]]] = None,
-        num_waveforms_per_prompt: Optional[int] = 1,
-        eta: float = 0.0,
-        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
-        latents: Optional[torch.Tensor] = None,
-        prompt_embeds: Optional[torch.Tensor] = None,
-        negative_prompt_embeds: Optional[torch.Tensor] = None,
-        generated_prompt_embeds: Optional[torch.Tensor] = None,
-        negative_generated_prompt_embeds: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.LongTensor] = None,
-        negative_attention_mask: Optional[torch.LongTensor] = None,
-        max_new_tokens: Optional[int] = None,
-        return_dict: bool = True,
-        callback: Optional[Callable[[int, int, torch.Tensor], None]] = None,
-        callback_steps: Optional[int] = 1,
-        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
-        output_type: Optional[str] = "np",
+            self,
+            prompt: Union[str, List[str]] = None,
+            transcription: Union[str, List[str]] = None,
+            audio_length_in_s: Optional[float] = None,
+            num_inference_steps: int = 200,
+            guidance_scale: float = 3.5,
+            negative_prompt: Optional[Union[str, List[str]]] = None,
+            num_waveforms_per_prompt: Optional[int] = 1,
+            eta: float = 0.0,
+            generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
+            latents: Optional[torch.Tensor] = None,
+            prompt_embeds: Optional[torch.Tensor] = None,
+            negative_prompt_embeds: Optional[torch.Tensor] = None,
+            generated_prompt_embeds: Optional[torch.Tensor] = None,
+            negative_generated_prompt_embeds: Optional[torch.Tensor] = None,
+            attention_mask: Optional[torch.LongTensor] = None,
+            negative_attention_mask: Optional[torch.LongTensor] = None,
+            max_new_tokens: Optional[int] = None,
+            return_dict: bool = True,
+            callback: Optional[Callable[[int, int, torch.Tensor], None]] = None,
+            callback_steps: Optional[int] = 1,
+            cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+            output_type: Optional[str] = "np",
 
-        measurement: Optional[torch.Tensor] = None,
+            measurement: Optional[torch.Tensor] = None,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -999,8 +998,6 @@ class AudioLDM2Pipeline(DiffusionPipeline):
             latents,
         )
 
-        print('latents: ', latents.shape)
-
         # 6. Prepare extra step kwargs
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
@@ -1008,6 +1005,9 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
+                latents = latents.detach().clone()
+                latents.requires_grad = True
+
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
@@ -1028,17 +1028,20 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                latents = self.scheduler.step(noise_pred,
-                                              t,
-                                              latents,
-                                              measurement=measurement,
-                                              original_waveform_length=original_waveform_length,
-                                              vae=self.vae,
-                                              vocoder=self.vocoder,
-                                              **extra_step_kwargs).prev_sample
+                out, distance = self.scheduler.step(noise_pred,
+                                                    t,
+                                                    latents,
+                                                    measurement=measurement,
+                                                    original_waveform_length=original_waveform_length,
+                                                    vae=self.vae,
+                                                    vocoder=self.vocoder,
+                                                    **extra_step_kwargs)
+
+                latents = out.prev_sample.detach()
 
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                    progress_bar.set_description("distance: {:.6f}".format(distance.item()))
                     progress_bar.update()
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.scheduler, "order", 1)
@@ -1053,15 +1056,9 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         else:
             return AudioPipelineOutput(audios=latents)
 
-        print('mel_spectrogram: ', mel_spectrogram.shape)
-
         audio = self.mel_spectrogram_to_waveform(mel_spectrogram)
 
-        print('audio: ', audio.shape)
-
         audio = audio[:, :original_waveform_length]
-
-        print('audio[:, :original_waveform_length]: ', audio.shape)
 
         # 9. Automatic scoring
         if num_waveforms_per_prompt > 1 and prompt is not None:

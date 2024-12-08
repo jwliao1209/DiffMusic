@@ -56,11 +56,14 @@ class WAVDataset(Dataset):
         wave, sr = torchaudio.load(fpath)  # wave shape: [channels, time]
         duration = wave.shape[-1] / sr
 
+        if wave.size(0) > 1:
+            wave = wave.mean(dim=0, keepdim=True)
+
         if sr != self.sample_rate:
             resampler = T.Resample(orig_freq=sr, new_freq=self.sample_rate)
             wave = resampler(wave)
 
         if self.transforms is not None:
-            wave = self.transforms(wave)
+            mel_spectrogram = self.transforms(wave)
 
-        return wave, self.sample_rate, duration
+        return wave, mel_spectrogram, self.sample_rate, duration
