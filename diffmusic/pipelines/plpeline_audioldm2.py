@@ -816,7 +816,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
             transcription: Union[str, List[str]] = None,
             audio_length_in_s: Optional[float] = None,
             num_inference_steps: int = 200,
-            guidance_scale: float = 3.5,
+            guidance_scale: float = 1.0,
             negative_prompt: Optional[Union[str, List[str]]] = None,
             num_waveforms_per_prompt: Optional[int] = 1,
             eta: float = 0.0,

@@ -100,34 +100,50 @@ class DDIMInpaintingScheduler(DDIMScheduler):
             # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
             # Guided diffusion posterior sampling using gradient-based methods
-            pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample
 
+            # Supervise on mel_spectrogram
+            pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample
             pred_mel_spectrogram = vae.decode(pred_original_sample).sample
 
-            pred_audio = self.mel_spectrogram_to_waveform(vocoder, pred_mel_spectrogram)
-            pred_audio = pred_audio[:, :original_waveform_length]
+            start_sample = 1000
+            end_sample = 1500
 
-            # (1, 48000)
-            start_sample = 200000
-            end_sample = 300000
-
-            # create mask
-            mask = torch.ones_like(pred_audio).to(pred_audio.device)
-            mask[:, start_sample: end_sample] = 0.
-
-            pred_audio = pred_audio * mask
-            measurement = measurement * mask
-
-            difference = measurement - pred_audio
+            difference = measurement - pred_mel_spectrogram
+            difference[:, :, start_sample: end_sample, :] = 0.
             norm = torch.linalg.norm(difference)
 
             norm_grad = torch.autograd.grad(outputs=norm, inputs=sample)[0]
 
-            prev_sample -= norm_grad
+            prev_sample -= norm_grad * 0.5
+
+            # Supervise on waveform
+            # pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample
+            # pred_mel_spectrogram = vae.decode(pred_original_sample).sample
+            #
+            # pred_audio = self.mel_spectrogram_to_waveform(vocoder, pred_mel_spectrogram)
+            # pred_audio = pred_audio[:, :original_waveform_length]
+            #
+            # # (1, 48000)
+            # start_sample = 200000
+            # end_sample = 300000
+            #
+            # # create mask
+            # mask = torch.ones_like(pred_audio).to(pred_audio.device)
+            # mask[:, start_sample: end_sample] = 0.
+            #
+            # pred_audio = pred_audio * mask
+            # measurement = measurement * mask
+            #
+            # difference = measurement - pred_audio
+            # norm = torch.linalg.norm(difference)
+            #
+            # norm_grad = torch.autograd.grad(outputs=norm, inputs=sample)[0]
+            #
+            # prev_sample -= norm_grad
 
             # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
         return DDIMSchedulerOutput(
-            prev_sample=prev_sample,
+            prev_sample=prev_sample.detach(),
             pred_original_sample=pred_original_sample,
         ), norm
