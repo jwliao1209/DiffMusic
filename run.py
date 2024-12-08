@@ -11,6 +11,9 @@ from diffmusic.pipelines.pipeline_musicldm import MusicLDMPipeline
 from diffmusic.pipelines.pipeline_stable_audio import StableAudioPipeline
 from diffmusic.schedulers.scheduling_inpainting import DDIMInpaintingScheduler
 
+from data.dataloader import get_dataset, get_dataloader
+import torchaudio
+
 
 def parse_arguments() -> Namespace:
     parser = ArgumentParser()
@@ -60,23 +63,47 @@ if __name__ == "__main__":
     # set the seed for generator
     generator = torch.Generator("cuda").manual_seed(0)
 
+    # load wav files
+    data_config = config.data
+    # transform = torchaudio.transforms.MelSpectrogram(
+    #     sample_rate=16000,
+    #     n_mels=64,
+    #     hop_length=441
+    # )
+    transform = torchaudio.transforms.MelSpectrogram(
+        sample_rate=16000,
+        n_mels=64
+    )
+    # transform = None
+    dataset = get_dataset(**data_config, sample_rate=16000, transforms=transform)
+    loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
+    print('Number of samples: ', len(loader))
+
     # run the generation
-    audio = pipe(
-        args.prompt,
-        negative_prompt=args.negative_prompt,
-        generator=generator,
-        **config.pipe,
-    ).audios
+    for i, (ref_wave, sr, duration) in enumerate(loader):
+        config.pipe.audio_length_in_s = duration.item()
+        print('sr: ', sr)
+        print('ref_wave: ', ref_wave.shape)
+        print('duration: ', duration)
 
-    # save the best audio sample (index 0) as a .wav file
-    save_path = f"outputs/{config.name}_sample_music.wav"
+        audio = pipe(
+            # latents=latent,
+            prompt=args.prompt,
+            negative_prompt=args.negative_prompt,
+            generator=generator,
+            measurement=ref_wave,
+            **config.pipe,
+        ).audios
 
-    # TODO: refactor interface to save the music
-    if config.name in ["audioldm2", "musicldm"]:
-        scipy.io.wavfile.write(save_path, rate=16000, data=audio[0])
-    elif config.name == "stable_audio":
-        sf.write(
-            save_path,
-            audio[0].T.float().cpu().numpy(),
-            pipe.vae.sampling_rate
-        )
+        # save the best audio sample (index 0) as a .wav file
+        save_path = f"outputs/{config.name}_sample_music_{i}.wav"
+
+        # TODO: refactor interface to save the music
+        if config.name in ["audioldm2", "musicldm"]:
+            scipy.io.wavfile.write(save_path, rate=16000, data=audio[0])
+        elif config.name == "stable_audio":
+            sf.write(
+                save_path,
+                audio[0].T.float().cpu().numpy(),
+                pipe.vae.sampling_rate
+            )
