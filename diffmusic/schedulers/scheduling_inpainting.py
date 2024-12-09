@@ -57,6 +57,21 @@ class MusicInpaintingScheduler(DDIMScheduler):
             rescale_betas_zero_snr=rescale_betas_zero_snr,
         )
 
+    def compute_spectrogram_stats(self, mel_spectrogram, mask):
+        mask = mask.to(torch.float32)
+        constrained_region = mel_spectrogram * mask
+        mean = constrained_region.flatten(-2).sum(dim=-1) / mask.flatten(-2).sum(dim=-1)
+        std = ((constrained_region - mean.unsqueeze(-1)) ** 2).flatten(-2).sum(dim=-1) / mask.flatten(-2).sum(dim=-1)
+        return mean, std
+
+    def style_loss(self, mel_spectrogram, constrained_mask, unconstrained_mask):
+        constrained_mean, constrained_std = self.compute_spectrogram_stats(mel_spectrogram, constrained_mask)
+        unconstrained_mean, unconstrained_std = self.compute_spectrogram_stats(mel_spectrogram, unconstrained_mask)
+
+        loss = torch.nn.functional.mse_loss(unconstrained_mean, constrained_mean) + \
+               torch.nn.functional.mse_loss(unconstrained_std, constrained_std)
+        return loss
+
     def step(
         self,
         model_output: torch.Tensor,
@@ -71,13 +86,14 @@ class MusicInpaintingScheduler(DDIMScheduler):
         start_sample: int = 1000,
         end_sample: int = 1500,
         measurement: Optional[torch.Tensor] = None,
-        rec_weight: int = 1,
-        style_weight: int = 1,
+        rec_weight: float = 1.,
+        style_weight: float = 1.,
+        style_weight2: float = 1.,
         learning_rate: float = 0.5,
         vae: AutoencoderKL = None,
         original_waveform_length: int = 0,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
-        
+
         with torch.enable_grad():
             sample = sample.clone().detach().requires_grad_(True)
             pred_original_sample = super().step(
@@ -111,41 +127,25 @@ class MusicInpaintingScheduler(DDIMScheduler):
             difference = measurement - pred_mel_spectrogram
             difference[:, :, start_sample: end_sample, :] = 0.
 
+            # style_loss (gram_matrix)
             gram_measurement = gram_matrix(measurement)
             gram_pred = gram_matrix(pred_mel_spectrogram)
 
             style_loss = torch.linalg.norm(gram_measurement - gram_pred)
             rec_loss = torch.linalg.norm(difference)
-            norm = rec_weight * rec_loss + style_weight * style_loss
-            tqdm.write(f"rec_loss: {rec_loss}, style_loss: {style_loss}")
+
+            # style_loss2 (calculate mean and std)
+            constrained_mask = torch.ones_like(pred_mel_spectrogram)
+            constrained_mask[:, :, start_sample: end_sample, :] = 0.
+            unconstrained_mask = 1 - constrained_mask
+
+            style_loss2 = self.style_loss(pred_mel_spectrogram, constrained_mask, unconstrained_mask)
+
+            norm = rec_weight * rec_loss + style_weight * style_loss + style_weight2 * style_loss2
+            tqdm.write(f"rec_loss: {rec_loss}, style_loss: {style_loss}, style_loss2: {style_loss2}")
 
             norm_grad = torch.autograd.grad(outputs=norm, inputs=sample)[0]
             prev_sample -= learning_rate * norm_grad
-
-            # # # Supervise on waveform # # #
-            # pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample
-            # pred_mel_spectrogram = vae.decode(pred_original_sample).sample
-            #
-            # pred_audio = self.mel_spectrogram_to_waveform(vocoder, pred_mel_spectrogram)
-            # pred_audio = pred_audio[:, :original_waveform_length]
-            #
-            # # (1, 48000)
-            # start_sample = 200000
-            # end_sample = 300000
-            #
-            # # create mask
-            # mask = torch.ones_like(pred_audio).to(pred_audio.device)
-            # mask[:, start_sample: end_sample] = 0.
-            #
-            # pred_audio = pred_audio * mask
-            # measurement = measurement * mask
-            #
-            # difference = measurement - pred_audio
-            # norm = torch.linalg.norm(difference)
-            #
-            # norm_grad = torch.autograd.grad(outputs=norm, inputs=sample)[0]
-            #
-            # prev_sample -= norm_grad
 
             # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 

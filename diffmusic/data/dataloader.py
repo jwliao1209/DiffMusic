@@ -39,18 +39,6 @@ def get_dataloader(dataset: Dataset,
     return dataloader
 
 
-def waveform_to_spectrogram(waveform, n_fft=1024, hop_length=160, win_length=1024):
-    spectrogram = torch.stft(
-        waveform,
-        n_fft=n_fft,
-        hop_length=hop_length,
-        win_length=win_length,
-        return_complex=True
-    )
-    magnitude, phase = torch.abs(spectrogram), torch.angle(spectrogram)
-    return magnitude, phase
-
-
 @register_dataset(name='wav')
 class WAVDataset(Dataset):
     def __init__(self, root: str, sample_rate: int, transforms: Optional[Callable] = None):
@@ -77,8 +65,6 @@ class WAVDataset(Dataset):
             wave = resampler(wave)
 
         if self.transforms is not None:
-            mel_spectrogram = self.transforms(wave)
-
-        _, phase = waveform_to_spectrogram(wave)
+            wave = self.transforms(wave)
  
-        return wave, mel_spectrogram, phase, self.sample_rate, duration
+        return wave, self.sample_rate, duration

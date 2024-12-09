@@ -1101,7 +1101,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         # mel_spectrogram to waveform with SpeechT5HifiGan
         # audio = self.mel_spectrogram_to_waveform(mel_spectrogram)
 
-        # mel_spectrogram to waveform with original phase (for inverse problem)a
+        # mel_spectrogram to waveform with original phase (for inverse problem)
         audio = self.mel_spectrogram_to_waveform_with_phase(mel_spectrogram.cpu(), ref_phase.cpu())
 
         audio = audio[:, :original_waveform_length]

@@ -13,6 +13,8 @@ from diffmusic.pipelines.pipeline_musicldm import MusicLDMPipeline
 from diffmusic.pipelines.pipeline_stable_audio import StableAudioPipeline
 from diffmusic.schedulers.scheduling_inpainting import MusicInpaintingScheduler
 
+from utils import waveform_to_spectrogram
+
 
 def parse_arguments() -> Namespace:
     parser = ArgumentParser()
@@ -84,7 +86,7 @@ if __name__ == "__main__":
     generator = torch.Generator("cuda").manual_seed(0)
 
     # load wav files
-    transform = torch.nn.Sequential(
+    wav2mel = torch.nn.Sequential(
         torchaudio.transforms.MelSpectrogram(
             sample_rate=16000,
             n_fft=1024,
@@ -97,16 +99,31 @@ if __name__ == "__main__":
     )
 
     # transform = None
-    dataset = get_dataset(**config.data, sample_rate=16000, transforms=transform)
+    dataset = get_dataset(**config.data, sample_rate=16000, transforms=None)
     loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
     print('Number of samples: ', len(loader))
 
     # run the generation
-    for i, (ref_wave, ref_mel_spectrogram, ref_phase, sr, duration) in enumerate(loader):
+    for i, (ref_wave, sr, duration) in enumerate(loader):
         config.pipe.audio_length_in_s = duration.item()
-        ref_wave = ref_wave[:, 0].to("cuda")
-        ref_mel_spectrogram = ref_mel_spectrogram[:, :, :, :int(duration.item()*100)].permute(0, 1, 3, 2).to("cuda")
-        ref_phase = ref_phase[:, :, :, : int(duration.item() * 100)].to("cuda")
+        ref_wave = ref_wave[:, 0]
+
+        # Inpainting
+        start_sample_s = 10
+        end_sample_s = 15
+        ref_wave[:, start_sample_s * 16000: end_sample_s * 16000] = 0.
+
+        ref_mel_spectrogram = wav2mel(ref_wave)
+        ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(duration.item() * 100)].permute(0, 2, 1)
+
+        ref_wave = ref_wave.to("cuda")
+        ref_mel_spectrogram = ref_mel_spectrogram.to("cuda")
+
+        _, ref_phase = waveform_to_spectrogram(waveform=ref_wave)
+        ref_phase = ref_phase[:, :, : int(duration.item() * 100)].to("cuda")
+
+        ref_wave = ref_wave.unsqueeze(0)
+        ref_mel_spectrogram = ref_mel_spectrogram.unsqueeze(0)
 
         # initialize the latents
         latents = pipe.vae.encode(ref_mel_spectrogram.half()).latent_dist.sample(generator)
@@ -141,16 +158,7 @@ if __name__ == "__main__":
             )
 
             # save degraded inputs (inpainting)
-            # simulated degradation
-            # (1, 1, 3000, 64)
-            start_sample = 1000
-            end_sample = 1500
 
-            # create mask
-            mask = torch.ones_like(ref_mel_spectrogram).to(ref_mel_spectrogram.device)
-            mask[:, :, start_sample: end_sample, :] = 0.
-
-            ref_mel_spectrogram[mask == 0] = -80.
 
             reconstructed_degraded_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
                 ref_mel_spectrogram.cpu(), ref_phase.cpu())
