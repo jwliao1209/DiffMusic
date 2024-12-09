@@ -10,6 +10,11 @@ from pydub import AudioSegment
 import random
 
 
+def gram_matrix(x):
+    b, c, h, w = x.shape
+    return torch.einsum("bchw,bdhw->bcd", x, x) / (c * h * w)
+
+
 class DDIMInpaintingScheduler(DDIMScheduler):
 
     @register_to_config
@@ -70,12 +75,13 @@ class DDIMInpaintingScheduler(DDIMScheduler):
         generator=None,
         variance_noise: Optional[torch.Tensor] = None,
         return_dict: bool = True,
-
+        # args for inverse problem
         measurement: Optional[torch.Tensor] = None,
         original_waveform_length: int = 0,
-        vae=None,
-        vocoder=None,
+        vae: AutoencoderKL = None,
+        vocoder=None,  # deprecated
     ) -> Union[DDIMSchedulerOutput, Tuple]:
+
         with torch.enable_grad():
             pred_original_sample = super().step(
                 model_output=model_output,
@@ -107,15 +113,22 @@ class DDIMInpaintingScheduler(DDIMScheduler):
 
             start_sample = 1000
             end_sample = 1500
+            rec_weight = 1
+            style_weight = 1
 
             difference = measurement - pred_mel_spectrogram
             print('difference: ', difference.shape)
 
             difference[:, :, start_sample: end_sample, :] = 0.
-            norm = torch.linalg.norm(difference)
+
+            gram_measurement = gram_matrix(measurement)
+            gram_pred = gram_matrix(pred_mel_spectrogram)
+
+            style_loss = torch.linalg.norm(gram_measurement - gram_pred)
+            rec_loss = torch.linalg.norm(difference)
+            norm = rec_weight * style_loss + style_weight * rec_loss
 
             norm_grad = torch.autograd.grad(outputs=norm, inputs=sample)[0]
-
             prev_sample -= norm_grad * 0.5
 
             # # # Supervise on waveform # # #
