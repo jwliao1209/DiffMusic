@@ -44,6 +44,8 @@ from diffusers.utils.torch_utils import randn_tensor
 from diffusers import AudioPipelineOutput, DiffusionPipeline
 from diffusers import AudioLDM2ProjectionModel, AudioLDM2UNet2DConditionModel
 
+import torchaudio
+
 if is_librosa_available():
     import librosa
 
@@ -645,6 +647,29 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         waveform = waveform.cpu().float()
         return waveform
 
+    # For inverse problem (Ours)
+    def mel_spectrogram_to_waveform_with_phase(self, mel_spectrogram, original_phase, n_fft=1024, hop_length=160,
+                                               win_length=1024):
+        mel_spectrogram = mel_spectrogram.squeeze(1).permute(0, 2, 1)
+        original_phase = original_phase.squeeze(0)
+
+        if mel_spectrogram.dtype != original_phase.dtype:
+            mel_spectrogram = mel_spectrogram.to(original_phase.dtype)
+
+        linear_spectrogram = torchaudio.transforms.InverseMelScale(
+            n_stft=n_fft // 2 + 1,
+            n_mels=mel_spectrogram.size(1),
+            sample_rate=16000
+        )(mel_spectrogram)
+        complex_spectrogram = linear_spectrogram * torch.exp(1j * original_phase)
+        waveform = torch.istft(
+            complex_spectrogram,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            win_length=win_length
+        )
+        return waveform
+
     def score_waveforms(self, text, audio, num_waveforms_per_prompt, device, dtype):
         if not is_librosa_available():
             logger.info(
@@ -834,8 +859,9 @@ class AudioLDM2Pipeline(DiffusionPipeline):
             callback_steps: Optional[int] = 1,
             cross_attention_kwargs: Optional[Dict[str, Any]] = None,
             output_type: Optional[str] = "np",
-
+            # For inverse problem
             measurement: Optional[torch.Tensor] = None,
+            ref_phase: Optional[torch.Tensor] = None,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -1056,7 +1082,11 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         else:
             return AudioPipelineOutput(audios=latents)
 
-        audio = self.mel_spectrogram_to_waveform(mel_spectrogram)
+        # mel_spectrogram to waveform with SpeechT5HifiGan
+        # audio = self.mel_spectrogram_to_waveform(mel_spectrogram)
+
+        # mel_spectrogram to waveform with original phase (for inverse problem)a
+        audio = self.mel_spectrogram_to_waveform_with_phase(mel_spectrogram.cpu(), ref_phase.cpu())
 
         audio = audio[:, :original_waveform_length]
 
