@@ -1,18 +1,19 @@
 from typing import Optional, Union, List, Tuple
 
-import torch
 import numpy as np
+import torch
 from diffusers.configuration_utils import register_to_config
+from diffusers.models import AutoencoderKL
 from diffusers.schedulers import DDIMScheduler
 from diffusers.schedulers.scheduling_ddim import DDIMSchedulerOutput
-
 from pydub import AudioSegment
-import random
+from tqdm import tqdm
 
 
 def gram_matrix(x):
     b, c, h, w = x.shape
-    return torch.einsum("bchw,bdhw->bcd", x, x) / (c * h * w)
+    scale = (c * h * w) ** 0.5
+    return torch.einsum("bchw,bdhw->bcd", x / scale, x / scale)
 
 
 class DDIMInpaintingScheduler(DDIMScheduler):
@@ -117,7 +118,7 @@ class DDIMInpaintingScheduler(DDIMScheduler):
             style_weight = 1
 
             difference = measurement - pred_mel_spectrogram
-            print('difference: ', difference.shape)
+            # print('difference: ', difference.shape)
 
             difference[:, :, start_sample: end_sample, :] = 0.
 
@@ -126,7 +127,8 @@ class DDIMInpaintingScheduler(DDIMScheduler):
 
             style_loss = torch.linalg.norm(gram_measurement - gram_pred)
             rec_loss = torch.linalg.norm(difference)
-            norm = rec_weight * style_loss + style_weight * rec_loss
+            norm = rec_weight * rec_loss + style_weight * style_loss
+            tqdm.write(f"rec_loss: {rec_loss}, style_loss: {style_loss}")
 
             norm_grad = torch.autograd.grad(outputs=norm, inputs=sample)[0]
             prev_sample -= norm_grad * 0.5
