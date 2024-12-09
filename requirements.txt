@@ -1,5 +1,6 @@
 accelerate==1.1.1
 diffusers==0.31.0
+pydub==0.25.1
 omegaconf==2.3.0
 scipy==1.14.1
 torch==2.5.1
