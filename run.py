@@ -65,11 +65,6 @@ if __name__ == "__main__":
 
     # load wav files
     data_config = config.data
-    # transform = torchaudio.transforms.MelSpectrogram(
-    #     sample_rate=16000,
-    #     n_mels=64,
-    #     hop_length=441
-    # )
     transform = torch.nn.Sequential(
         torchaudio.transforms.MelSpectrogram(
             sample_rate=16000,
@@ -87,33 +82,11 @@ if __name__ == "__main__":
     print('Number of samples: ', len(loader))
 
     # run the generation
-    for i, (ref_wave, ref_mel_spectrogram, sr, duration) in enumerate(loader):
+    for i, (ref_wave, ref_mel_spectrogram, ref_phase, sr, duration) in enumerate(loader):
         config.pipe.audio_length_in_s = duration.item()
         ref_wave = ref_wave[:, 0].to("cuda")
         ref_mel_spectrogram = ref_mel_spectrogram[:, :, :, :int(duration.item()*100)].permute(0, 1, 3, 2).to("cuda")
-
-        reconstructed_waveform = pipe.mel_spectrogram_to_waveform(ref_mel_spectrogram.half())
-
-        scipy.io.wavfile.write(f"outputs/reconstructed_waveform_{i+1}.wav",
-                               rate=16000, data=reconstructed_waveform.cpu().detach().numpy()[0])
-
-        # (1, 1, 3000, 64)
-        start_sample = 1000
-        end_sample = 1500
-
-        # create mask
-        mask = torch.ones_like(ref_mel_spectrogram).to(ref_mel_spectrogram.device)
-        mask[:, :, start_sample: end_sample, :] = 0.
-
-        ref_mel_spectrogram[mask == 0] = -80.
-
-        reconstructed_waveform = pipe.mel_spectrogram_to_waveform(ref_mel_spectrogram.half())
-
-        scipy.io.wavfile.write(f"outputs/reconstructed_degraded_waveform_{i+1}.wav",
-                               rate=16000, data=reconstructed_waveform.cpu().detach().numpy()[0])
-
-        scipy.io.wavfile.write(f"outputs/gt_waveform_{i+1}.wav",
-                               rate=16000, data=ref_wave.cpu().detach().numpy()[0])
+        ref_phase = ref_phase[:, :, :, :int(duration.item()*100)].to("cuda")
 
         audio = pipe(
             # latents=latent,
@@ -121,15 +94,43 @@ if __name__ == "__main__":
             negative_prompt=args.negative_prompt,
             generator=generator,
             measurement=ref_mel_spectrogram,
+            ref_phase=ref_phase,
             **config.pipe,
         ).audios
 
         # save the best audio sample (index 0) as a .wav file
-        save_path = f"outputs/{config.name}_sample_music_{i+1}.wav"
+        save_path = f"outputs/{config.name}_sample_music_{i + 1}.wav"
 
         # TODO: refactor interface to save the music
         if config.name in ["audioldm2", "musicldm"]:
+            # save outputs
             scipy.io.wavfile.write(save_path, rate=16000, data=audio[0])
+
+            # save inputs
+            reconstructed_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(ref_mel_spectrogram.cpu(),
+                                                                                            ref_phase.cpu())
+            scipy.io.wavfile.write(f"outputs/{config.name}_inputs_music_{i + 1}.wav",
+                                   rate=16000, data=reconstructed_waveform_with_phase.cpu().detach().numpy()[0])
+
+            # save degraded inputs (inpainting)
+            # simulated degradation
+            # (1, 1, 3000, 64)
+            start_sample = 1000
+            end_sample = 1500
+
+            # create mask
+            mask = torch.ones_like(ref_mel_spectrogram).to(ref_mel_spectrogram.device)
+            mask[:, :, start_sample: end_sample, :] = 0.
+
+            ref_mel_spectrogram[mask == 0] = -80.
+
+            reconstructed_degraded_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
+                ref_mel_spectrogram.cpu(), ref_phase.cpu())
+
+            scipy.io.wavfile.write(f"outputs/{config.name}_degraded_inputs_music_{i + 1}.wav",
+                                   rate=16000,
+                                   data=reconstructed_degraded_waveform_with_phase.cpu().detach().numpy()[0])
+
         elif config.name == "stable_audio":
             sf.write(
                 save_path,

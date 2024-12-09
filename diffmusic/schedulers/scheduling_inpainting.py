@@ -101,7 +101,7 @@ class DDIMInpaintingScheduler(DDIMScheduler):
 
             # Guided diffusion posterior sampling using gradient-based methods
 
-            # Supervise on mel_spectrogram
+            # # # Supervise on mel_spectrogram # # #
             pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample
             pred_mel_spectrogram = vae.decode(pred_original_sample).sample
 
@@ -109,6 +109,8 @@ class DDIMInpaintingScheduler(DDIMScheduler):
             end_sample = 1500
 
             difference = measurement - pred_mel_spectrogram
+            print('difference: ', difference.shape)
+
             difference[:, :, start_sample: end_sample, :] = 0.
             norm = torch.linalg.norm(difference)
 
@@ -116,7 +118,7 @@ class DDIMInpaintingScheduler(DDIMScheduler):
 
             prev_sample -= norm_grad * 0.5
 
-            # Supervise on waveform
+            # # # Supervise on waveform # # #
             # pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample
             # pred_mel_spectrogram = vae.decode(pred_original_sample).sample
             #
