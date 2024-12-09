@@ -16,7 +16,7 @@ def gram_matrix(x):
     return torch.einsum("bchw,bdhw->bcd", x / scale, x / scale)
 
 
-class DDIMInpaintingScheduler(DDIMScheduler):
+class MusicInpaintingScheduler(DDIMScheduler):
 
     @register_to_config
     def __init__(
@@ -57,15 +57,6 @@ class DDIMInpaintingScheduler(DDIMScheduler):
             rescale_betas_zero_snr=rescale_betas_zero_snr,
         )
 
-    def mel_spectrogram_to_waveform(self, vocoder, mel_spectrogram):
-        if mel_spectrogram.dim() == 4:
-            mel_spectrogram = mel_spectrogram.squeeze(1)
-
-        waveform = vocoder(mel_spectrogram)
-        # we always cast to float32 as this does not cause significant overhead and is compatible with bfloat16
-        waveform = waveform.float()
-        return waveform
-
     def step(
         self,
         model_output: torch.Tensor,
@@ -77,13 +68,18 @@ class DDIMInpaintingScheduler(DDIMScheduler):
         variance_noise: Optional[torch.Tensor] = None,
         return_dict: bool = True,
         # args for inverse problem
+        start_sample: int = 1000,
+        end_sample: int = 1500,
         measurement: Optional[torch.Tensor] = None,
-        original_waveform_length: int = 0,
+        rec_weight: int = 1,
+        style_weight: int = 1,
+        learning_rate: float = 0.5,
         vae: AutoencoderKL = None,
-        vocoder=None,  # deprecated
+        original_waveform_length: int = 0,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
-
+        
         with torch.enable_grad():
+            sample = sample.clone().detach().requires_grad_(True)
             pred_original_sample = super().step(
                 model_output=model_output,
                 timestep=timestep,
@@ -112,14 +108,7 @@ class DDIMInpaintingScheduler(DDIMScheduler):
             pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample
             pred_mel_spectrogram = vae.decode(pred_original_sample).sample
 
-            start_sample = 1000
-            end_sample = 1500
-            rec_weight = 1
-            style_weight = 1
-
             difference = measurement - pred_mel_spectrogram
-            # print('difference: ', difference.shape)
-
             difference[:, :, start_sample: end_sample, :] = 0.
 
             gram_measurement = gram_matrix(measurement)
@@ -131,7 +120,7 @@ class DDIMInpaintingScheduler(DDIMScheduler):
             tqdm.write(f"rec_loss: {rec_loss}, style_loss: {style_loss}")
 
             norm_grad = torch.autograd.grad(outputs=norm, inputs=sample)[0]
-            prev_sample -= norm_grad * 0.5
+            prev_sample -= learning_rate * norm_grad
 
             # # # Supervise on waveform # # #
             # pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample

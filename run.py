@@ -3,20 +3,29 @@ from argparse import ArgumentParser, Namespace
 
 import scipy
 import torch
+import torchaudio
 import soundfile as sf
 from omegaconf import OmegaConf
 
+from diffmusic.data.dataloader import get_dataset, get_dataloader
 from diffmusic.pipelines.plpeline_audioldm2 import AudioLDM2Pipeline
 from diffmusic.pipelines.pipeline_musicldm import MusicLDMPipeline
 from diffmusic.pipelines.pipeline_stable_audio import StableAudioPipeline
-from diffmusic.schedulers.scheduling_inpainting import DDIMInpaintingScheduler
-
-from data.dataloader import get_dataset, get_dataloader
-import torchaudio
+from diffmusic.schedulers.scheduling_inpainting import MusicInpaintingScheduler
 
 
 def parse_arguments() -> Namespace:
     parser = ArgumentParser()
+    parser.add_argument(
+        "--task",
+        type=str,
+        default="music_inpainting",
+        choices=[
+            "music_inpainting",
+            "phase_retrieval",
+            "super_resolution",
+        ],
+    )
     parser.add_argument(
         "--config_path",
         type=str,
@@ -55,16 +64,26 @@ if __name__ == "__main__":
         case _:
             raise ValueError(f"Unknown pipeline name: {config.name}")
 
+    match args.task:
+        case "music_inpainting":
+            Scheduler = MusicInpaintingScheduler
+        # TODO: implement the following tasks
+        case "phase_retrieval":
+            Scheduler = None
+        case "super_resolution":
+            Scheduler = None
+        case _:
+            raise ValueError(f"Unknown task: {args.task}")
+
     # prepare the pipeline
     pipe = Pipeline.from_pretrained(config.repo_id, torch_dtype=torch.float16)
-    pipe.scheduler = DDIMInpaintingScheduler(**config.scheduler)
+    pipe.scheduler = Scheduler(**config.scheduler)
     pipe = pipe.to("cuda")
 
     # set the seed for generator
     generator = torch.Generator("cuda").manual_seed(0)
 
     # load wav files
-    data_config = config.data
     transform = torch.nn.Sequential(
         torchaudio.transforms.MelSpectrogram(
             sample_rate=16000,
@@ -72,12 +91,13 @@ if __name__ == "__main__":
             hop_length=160,
             win_length=1024,
             n_mels=64,
-            power=2.0
+            power=2.0,
         ),
         torchaudio.transforms.AmplitudeToDB(stype="power")
     )
+
     # transform = None
-    dataset = get_dataset(**data_config, sample_rate=16000, transforms=transform)
+    dataset = get_dataset(**config.data, sample_rate=16000, transforms=transform)
     loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
     print('Number of samples: ', len(loader))
 
@@ -86,10 +106,14 @@ if __name__ == "__main__":
         config.pipe.audio_length_in_s = duration.item()
         ref_wave = ref_wave[:, 0].to("cuda")
         ref_mel_spectrogram = ref_mel_spectrogram[:, :, :, :int(duration.item()*100)].permute(0, 1, 3, 2).to("cuda")
-        ref_phase = ref_phase[:, :, :, :int(duration.item()*100)].to("cuda")
+        ref_phase = ref_phase[:, :, :, : int(duration.item() * 100)].to("cuda")
+
+        # initialize the latents
+        latents = pipe.vae.encode(ref_mel_spectrogram.half()).latent_dist.sample(generator)
+        latents = pipe.vae.config.scaling_factor * latents
 
         audio = pipe(
-            # latents=latent,
+            latents=latents,
             prompt=args.prompt,
             negative_prompt=args.negative_prompt,
             generator=generator,
@@ -107,10 +131,14 @@ if __name__ == "__main__":
             scipy.io.wavfile.write(save_path, rate=16000, data=audio[0])
 
             # save inputs
-            reconstructed_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(ref_mel_spectrogram.cpu(),
-                                                                                            ref_phase.cpu())
-            scipy.io.wavfile.write(f"outputs/{config.name}_inputs_music_{i + 1}.wav",
-                                   rate=16000, data=reconstructed_waveform_with_phase.cpu().detach().numpy()[0])
+            reconstructed_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
+                ref_mel_spectrogram.cpu(), ref_phase.cpu()
+            )
+            scipy.io.wavfile.write(
+                f"outputs/{config.name}_inputs_music_{i + 1}.wav",
+                rate=16000,
+                data=reconstructed_waveform_with_phase.cpu().detach().numpy()[0],
+            )
 
             # save degraded inputs (inpainting)
             # simulated degradation
@@ -127,9 +155,11 @@ if __name__ == "__main__":
             reconstructed_degraded_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
                 ref_mel_spectrogram.cpu(), ref_phase.cpu())
 
-            scipy.io.wavfile.write(f"outputs/{config.name}_degraded_inputs_music_{i + 1}.wav",
-                                   rate=16000,
-                                   data=reconstructed_degraded_waveform_with_phase.cpu().detach().numpy()[0])
+            scipy.io.wavfile.write(
+                f"outputs/{config.name}_degraded_inputs_music_{i + 1}.wav",
+                rate=16000,
+                data=reconstructed_degraded_waveform_with_phase.cpu().detach().numpy()[0],
+            )
 
         elif config.name == "stable_audio":
             sf.write(

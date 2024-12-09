@@ -180,18 +180,18 @@ class AudioLDM2Pipeline(DiffusionPipeline):
     """
 
     def __init__(
-            self,
-            vae: AutoencoderKL,
-            text_encoder: ClapModel,
-            text_encoder_2: Union[T5EncoderModel, VitsModel],
-            projection_model: AudioLDM2ProjectionModel,
-            language_model: GPT2Model,
-            tokenizer: Union[RobertaTokenizer, RobertaTokenizerFast],
-            tokenizer_2: Union[T5Tokenizer, T5TokenizerFast, VitsTokenizer],
-            feature_extractor: ClapFeatureExtractor,
-            unet: AudioLDM2UNet2DConditionModel,
-            scheduler: KarrasDiffusionSchedulers,
-            vocoder: SpeechT5HifiGan,
+        self,
+        vae: AutoencoderKL,
+        text_encoder: ClapModel,
+        text_encoder_2: Union[T5EncoderModel, VitsModel],
+        projection_model: AudioLDM2ProjectionModel,
+        language_model: GPT2Model,
+        tokenizer: Union[RobertaTokenizer, RobertaTokenizerFast],
+        tokenizer_2: Union[T5Tokenizer, T5TokenizerFast, VitsTokenizer],
+        feature_extractor: ClapFeatureExtractor,
+        unet: AudioLDM2UNet2DConditionModel,
+        scheduler: KarrasDiffusionSchedulers,
+        vocoder: SpeechT5HifiGan,
     ):
         super().__init__()
 
@@ -306,20 +306,20 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         return inputs_embeds[:, -max_new_tokens:, :]
 
     def encode_prompt(
-            self,
-            prompt,
-            device,
-            num_waveforms_per_prompt,
-            do_classifier_free_guidance,
-            transcription=None,
-            negative_prompt=None,
-            prompt_embeds: Optional[torch.Tensor] = None,
-            negative_prompt_embeds: Optional[torch.Tensor] = None,
-            generated_prompt_embeds: Optional[torch.Tensor] = None,
-            negative_generated_prompt_embeds: Optional[torch.Tensor] = None,
-            attention_mask: Optional[torch.LongTensor] = None,
-            negative_attention_mask: Optional[torch.LongTensor] = None,
-            max_new_tokens: Optional[int] = None,
+        self,
+        prompt,
+        device,
+        num_waveforms_per_prompt,
+        do_classifier_free_guidance,
+        transcription=None,
+        negative_prompt=None,
+        prompt_embeds: Optional[torch.Tensor] = None,
+        negative_prompt_embeds: Optional[torch.Tensor] = None,
+        generated_prompt_embeds: Optional[torch.Tensor] = None,
+        negative_generated_prompt_embeds: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.LongTensor] = None,
+        negative_attention_mask: Optional[torch.LongTensor] = None,
+        max_new_tokens: Optional[int] = None,
     ):
         r"""
         Encodes the prompt into text encoder hidden states.
@@ -648,8 +648,14 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         return waveform
 
     # For inverse problem (Ours)
-    def mel_spectrogram_to_waveform_with_phase(self, mel_spectrogram, original_phase, n_fft=1024, hop_length=160,
-                                               win_length=1024):
+    def mel_spectrogram_to_waveform_with_phase(
+        self,
+        mel_spectrogram,
+        original_phase,
+        n_fft=1024,
+        hop_length=160,
+        win_length=1024
+    ):
         mel_spectrogram = mel_spectrogram.squeeze(1).permute(0, 2, 1)
         original_phase = original_phase.squeeze(0)
 
@@ -697,8 +703,8 @@ class AudioLDM2Pipeline(DiffusionPipeline):
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_extra_step_kwargs
     def prepare_extra_step_kwargs(self, generator, eta):
         # prepare extra kwargs for the scheduler step, since not all schedulers have the same signature
-        # eta (庢) is only used with the DDIMScheduler, it will be ignored for other schedulers.
-        # eta corresponds to 庢 in DDIM paper: https://arxiv.org/abs/2010.02502
+        # eta is only used with the DDIMScheduler, it will be ignored for other schedulers.
+        # eta corresponds to in DDIM paper: https://arxiv.org/abs/2010.02502
         # and should be between [0, 1]
 
         accepts_eta = "eta" in set(inspect.signature(self.scheduler.step).parameters.keys())
@@ -713,19 +719,19 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         return extra_step_kwargs
 
     def check_inputs(
-            self,
-            prompt,
-            audio_length_in_s,
-            vocoder_upsample_factor,
-            callback_steps,
-            transcription=None,
-            negative_prompt=None,
-            prompt_embeds=None,
-            negative_prompt_embeds=None,
-            generated_prompt_embeds=None,
-            negative_generated_prompt_embeds=None,
-            attention_mask=None,
-            negative_attention_mask=None,
+        self,
+        prompt,
+        audio_length_in_s,
+        vocoder_upsample_factor,
+        callback_steps,
+        transcription=None,
+        negative_prompt=None,
+        prompt_embeds=None,
+        negative_prompt_embeds=None,
+        generated_prompt_embeds=None,
+        negative_generated_prompt_embeds=None,
+        attention_mask=None,
+        negative_attention_mask=None,
     ):
         min_audio_length_in_s = vocoder_upsample_factor * self.vae_scale_factor
         if audio_length_in_s < min_audio_length_in_s:
@@ -811,7 +817,16 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                 )
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_latents with width->self.vocoder.config.model_in_dim
-    def prepare_latents(self, batch_size, num_channels_latents, height, dtype, device, generator, latents=None):
+    def prepare_latents(
+        self,
+        batch_size,
+        num_channels_latents,
+        height,
+        dtype,
+        device,
+        generator,
+        latents=None
+    ):
         shape = (
             batch_size,
             num_channels_latents,
@@ -836,32 +851,32 @@ class AudioLDM2Pipeline(DiffusionPipeline):
     @torch.no_grad()
     @replace_example_docstring(EXAMPLE_DOC_STRING)
     def __call__(
-            self,
-            prompt: Union[str, List[str]] = None,
-            transcription: Union[str, List[str]] = None,
-            audio_length_in_s: Optional[float] = None,
-            num_inference_steps: int = 200,
-            guidance_scale: float = 1.0,
-            negative_prompt: Optional[Union[str, List[str]]] = None,
-            num_waveforms_per_prompt: Optional[int] = 1,
-            eta: float = 0.0,
-            generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
-            latents: Optional[torch.Tensor] = None,
-            prompt_embeds: Optional[torch.Tensor] = None,
-            negative_prompt_embeds: Optional[torch.Tensor] = None,
-            generated_prompt_embeds: Optional[torch.Tensor] = None,
-            negative_generated_prompt_embeds: Optional[torch.Tensor] = None,
-            attention_mask: Optional[torch.LongTensor] = None,
-            negative_attention_mask: Optional[torch.LongTensor] = None,
-            max_new_tokens: Optional[int] = None,
-            return_dict: bool = True,
-            callback: Optional[Callable[[int, int, torch.Tensor], None]] = None,
-            callback_steps: Optional[int] = 1,
-            cross_attention_kwargs: Optional[Dict[str, Any]] = None,
-            output_type: Optional[str] = "np",
-            # For inverse problem
-            measurement: Optional[torch.Tensor] = None,
-            ref_phase: Optional[torch.Tensor] = None,
+        self,
+        prompt: Union[str, List[str]] = None,
+        transcription: Union[str, List[str]] = None,
+        audio_length_in_s: Optional[float] = None,
+        num_inference_steps: int = 200,
+        guidance_scale: float = 1.0,
+        negative_prompt: Optional[Union[str, List[str]]] = None,
+        num_waveforms_per_prompt: Optional[int] = 1,
+        eta: float = 0.0,
+        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
+        latents: Optional[torch.Tensor] = None,
+        prompt_embeds: Optional[torch.Tensor] = None,
+        negative_prompt_embeds: Optional[torch.Tensor] = None,
+        generated_prompt_embeds: Optional[torch.Tensor] = None,
+        negative_generated_prompt_embeds: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.LongTensor] = None,
+        negative_attention_mask: Optional[torch.LongTensor] = None,
+        max_new_tokens: Optional[int] = None,
+        return_dict: bool = True,
+        callback: Optional[Callable[[int, int, torch.Tensor], None]] = None,
+        callback_steps: Optional[int] = 1,
+        cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+        output_type: Optional[str] = "np",
+        # For inverse problem
+        measurement: Optional[torch.Tensor] = None,
+        ref_phase: Optional[torch.Tensor] = None,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -888,7 +903,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                 generated waveforms based on their cosine similarity with the text input in the joint text-audio
                 embedding space.
             eta (`float`, *optional*, defaults to 0.0):
-                Corresponds to parameter eta (庢) from the [DDIM](https://arxiv.org/abs/2010.02502) paper. Only applies
+                Corresponds to parameter eta from the [DDIM](https://arxiv.org/abs/2010.02502) paper. Only applies
                 to the [`~schedulers.DDIMScheduler`], and is ignored in other schedulers.
             generator (`torch.Generator` or `List[torch.Generator]`, *optional*):
                 A [`torch.Generator`](https://pytorch.org/docs/stable/generated/torch.Generator.html) to make
@@ -1022,7 +1037,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
             device,
             generator,
             latents,
-        )
+        )  # size: (1, 8, 750, 16)
 
         # 6. Prepare extra step kwargs
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
@@ -1054,14 +1069,15 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                out, distance = self.scheduler.step(noise_pred,
-                                                    t,
-                                                    latents,
-                                                    measurement=measurement,
-                                                    original_waveform_length=original_waveform_length,
-                                                    vae=self.vae,
-                                                    vocoder=self.vocoder,
-                                                    **extra_step_kwargs)
+                out, distance = self.scheduler.step(
+                    noise_pred,
+                    t,
+                    latents,
+                    measurement=measurement,
+                    original_waveform_length=original_waveform_length,
+                    vae=self.vae,
+                    **extra_step_kwargs
+                )
 
                 latents = out.prev_sample.detach()
 

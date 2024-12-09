@@ -1,11 +1,12 @@
 from glob import glob
 from typing import Callable, Optional
-from torch.utils.data import DataLoader, Dataset
+
+import numpy as np
 import torchaudio
 import torch
 import torchaudio.transforms as T
+from torch.utils.data import DataLoader, Dataset
 from pydub import AudioSegment
-import numpy as np
 
 
 __DATASET__ = {}
@@ -79,5 +80,5 @@ class WAVDataset(Dataset):
             mel_spectrogram = self.transforms(wave)
 
         _, phase = waveform_to_spectrogram(wave)
-
+ 
         return wave, mel_spectrogram, phase, self.sample_rate, duration
