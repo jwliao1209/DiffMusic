@@ -1,0 +1,26 @@
+name: audioldm2
+repo_id: cvssp/audioldm2
+pipe:
+  num_inference_steps: 200
+  audio_length_in_s: 10
+  num_waveforms_per_prompt: 1
+scheduler:
+  num_train_timesteps: 1000
+  beta_start: 0.0015
+  beta_end: 0.0195
+  beta_schedule: scaled_linear
+  trained_betas: null
+  clip_sample: False
+  set_alpha_to_one: False
+  steps_offset: 1
+  prediction_type: epsilon
+  thresholding: False
+  dynamic_thresholding_ratio: 0.995
+  clip_sample_range: 1.0
+  sample_max_value: 1.0
+  timestep_spacing: leading
+  rescale_betas_zero_snr: False
+data:
+  name: wav
+  root: ./data/samples/
+

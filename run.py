@@ -105,36 +105,45 @@ if __name__ == "__main__":
 
     # run the generation
     for i, (ref_wave, sr, duration) in enumerate(loader):
-        config.pipe.audio_length_in_s = duration.item()
-        ref_wave = ref_wave[:, 0]
+        config.pipe.audio_length_in_s = 5
+        ref_wave = ref_wave[:, 0, :5 * 16000]
+        gt_wave = ref_wave.clone()
+
+        gt_mel_spectrogram = wav2mel(gt_wave)
+        gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(5 * 100)].permute(0, 2, 1).unsqueeze(0)
+
+        pipe.save_mel_spectrogram(gt_mel_spectrogram, "gt_mel_spectrogram.png")
 
         # Inpainting
-        start_sample_s = 10
-        end_sample_s = 15
+        start_sample_s = 2
+        end_sample_s = 3
         ref_wave[:, start_sample_s * 16000: end_sample_s * 16000] = 0.
 
         ref_mel_spectrogram = wav2mel(ref_wave)
-        ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(duration.item() * 100)].permute(0, 2, 1)
+        ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(5 * 100)].permute(0, 2, 1)
 
         ref_wave = ref_wave.to("cuda")
         ref_mel_spectrogram = ref_mel_spectrogram.to("cuda")
 
         _, ref_phase = waveform_to_spectrogram(waveform=ref_wave)
-        ref_phase = ref_phase[:, :, : int(duration.item() * 100)].to("cuda")
+        ref_phase = ref_phase[:, :, : int(5 * 100)].to("cuda")
 
         ref_wave = ref_wave.unsqueeze(0)
         ref_mel_spectrogram = ref_mel_spectrogram.unsqueeze(0)
 
+        pipe.save_mel_spectrogram(ref_mel_spectrogram, "input_mel_spectrogram.png")
+
         # initialize the latents
-        latents = pipe.vae.encode(ref_mel_spectrogram.half()).latent_dist.sample(generator)
-        latents = pipe.vae.config.scaling_factor * latents
+        # latents = pipe.vae.encode(ref_mel_spectrogram.half()).latent_dist.sample(generator)
+        # latents = pipe.vae.config.scaling_factor * latents
 
         audio = pipe(
-            latents=latents,
+            latents=None,
             prompt=args.prompt,
             negative_prompt=args.negative_prompt,
             generator=generator,
-            measurement=ref_mel_spectrogram,
+            ref_wave=ref_wave,
+            ref_mel_spectrogram=ref_mel_spectrogram,
             ref_phase=ref_phase,
             **config.pipe,
         ).audios
@@ -148,23 +157,18 @@ if __name__ == "__main__":
             scipy.io.wavfile.write(save_path, rate=16000, data=audio[0])
 
             # save inputs
-            reconstructed_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
-                ref_mel_spectrogram.cpu(), ref_phase.cpu()
-            )
             scipy.io.wavfile.write(
-                f"outputs/{config.name}_inputs_music_{i + 1}.wav",
+                f"outputs/{config.name}_gt_music_{i + 1}.wav",
                 rate=16000,
-                data=reconstructed_waveform_with_phase.cpu().detach().numpy()[0],
+                data=gt_wave.cpu().detach().numpy()[0],
             )
 
             # save degraded inputs (inpainting)
-
-
             reconstructed_degraded_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
                 ref_mel_spectrogram.cpu(), ref_phase.cpu())
 
             scipy.io.wavfile.write(
-                f"outputs/{config.name}_degraded_inputs_music_{i + 1}.wav",
+                f"outputs/{config.name}_input_music_{i + 1}.wav",
                 rate=16000,
                 data=reconstructed_degraded_waveform_with_phase.cpu().detach().numpy()[0],
             )
