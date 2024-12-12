@@ -11,3 +11,7 @@ def waveform_to_spectrogram(waveform, n_fft=1024, hop_length=160, win_length=102
     )
     magnitude, phase = torch.abs(spectrogram), torch.angle(spectrogram)
     return magnitude, phase
+
+
+def dict_to_device(data: dict, device: torch.device) -> dict:
+    return {k: v.to(device) if not isinstance(v, list) else v for k, v in data.items()}

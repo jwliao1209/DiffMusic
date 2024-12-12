@@ -14,12 +14,6 @@ import torchaudio
 from diffmusic.data.operator import MusicInpaintingOperator
 
 
-def gram_matrix(x):
-    b, c, h, w = x.shape
-    scale = (c * h * w) ** 0.5
-    return torch.einsum("bchw,bdhw->bcd", x / scale, x / scale)
-
-
 class MusicInpaintingScheduler(DDIMScheduler):
 
     @register_to_config
@@ -119,13 +113,12 @@ class MusicInpaintingScheduler(DDIMScheduler):
         variance_noise: Optional[torch.Tensor] = None,
         return_dict: bool = True,
         # args for inverse problem
-        ref_wave: Optional[torch.Tensor] = None,
         ref_mel_spectrogram: Optional[torch.Tensor] = None,
         measurement: Optional[torch.Tensor] = None,  # ref_mel_spectrogram
         rec_weight: float = 1.,
-        style_weight: float = 0.05,
-        style_weight2: float = 1.,
-        style_weight3: float = 0.005,
+        # style_weight: float = 0.05,
+        # style_weight2: float = 1.,
+        # style_weight3: float = 0.005,
         learning_rate: float = 3e-4,
         vae: AutoencoderKL = None,
         vocoder: SpeechT5HifiGan = None,
@@ -133,6 +126,8 @@ class MusicInpaintingScheduler(DDIMScheduler):
         start_inpainting_s: float = 0,
         end_inpainting_s: float = 0,
         audio_length_in_s: float = 0,
+        *args,
+        **kwargs,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
 
         with torch.enable_grad():

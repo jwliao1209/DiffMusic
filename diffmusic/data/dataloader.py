@@ -31,14 +31,16 @@ def get_dataloader(
     dataset: Dataset,
     batch_size: int,
     num_workers: int,
-    train: bool,
+    train: bool = False,
+    collate_fn: Optional[Callable] = None,
 ):
     dataloader = DataLoader(
         dataset,
         batch_size,
         shuffle=train,
         num_workers=num_workers,
-        drop_last=train
+        drop_last=train,
+        collate_fn=collate_fn,
     )
     return dataloader
 
@@ -84,9 +86,6 @@ class WAVDataset(Dataset):
             resampler = T.Resample(orig_freq=sr, new_freq=self.sample_rate)
             wave = resampler(wave)
 
-        if self.transforms is not None:
-            wave = self.transforms(wave)
-        
         wave = wave[0]
         ref_wave = wave.clone()
         ref_wave[ 
@@ -95,11 +94,14 @@ class WAVDataset(Dataset):
         ] = 0.
         ref_wave = ref_wave[int(self.start_s * self.sample_rate) : int(self.end_s * self.sample_rate)]
         gt_wave = wave[int(self.start_s * self.sample_rate) : int(self.end_s * self.sample_rate)]
-
-        return {
+        
+        data = {
             "gt_wave": gt_wave,
             "ref_wave": ref_wave,
+            "gt_mel_spectrogram": gt_wave,
+            "ref_mel_spectrogram": ref_wave,
             "start_inpainting_s": self.start_inpainting_s - self.start_s,
             "end_inpainting_s": self.end_inpainting_s - self.start_s,
             "duration": duration,
         }
+        return self.transforms(data) if self.transforms is not None else data

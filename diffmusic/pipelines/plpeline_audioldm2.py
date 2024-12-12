@@ -924,7 +924,6 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         # For inverse problem
         ref_wave: Optional[torch.Tensor] = None,
         ref_mel_spectrogram: Optional[torch.Tensor] = None,
-        ref_phase: Optional[torch.Tensor] = None,
         start_inpainting_s: float = 0.0,
         end_inpainting_s: float = 0.0,
         measurement: Optional[torch.Tensor] = None,
