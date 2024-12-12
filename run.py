@@ -12,7 +12,11 @@ from diffmusic.pipelines.plpeline_audioldm2 import AudioLDM2Pipeline
 from diffmusic.pipelines.pipeline_musicldm import MusicLDMPipeline
 from diffmusic.pipelines.pipeline_stable_audio import StableAudioPipeline
 from diffmusic.schedulers.scheduling_inpainting import MusicInpaintingScheduler
+from diffmusic.schedulers.scheduling_phase_retrieval import MusicPhaseRetrievalScheduler
+from diffmusic.data.operator import (MusicInpaintingOperator,
+                                     MusicPhaseRetrievalOperator)
 from diffmusic.utils.utils import waveform_to_spectrogram
+
 
 
 def parse_arguments() -> Namespace:
@@ -57,6 +61,10 @@ if __name__ == "__main__":
     os.makedirs("outputs", exist_ok=True)
     os.makedirs("results", exist_ok=True)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    audio_length_in_s = 5
+    sample_rate = 16000
+
     match config.name:
         case "audioldm2":
             Pipeline = AudioLDM2Pipeline
@@ -70,17 +78,27 @@ if __name__ == "__main__":
     match args.task:
         case "music_inpainting":
             Scheduler = MusicInpaintingScheduler
+            start_sample_s = 2
+            end_sample_s = 3
+            Operator = MusicInpaintingOperator(audio_length_in_s=audio_length_in_s,
+                                               sample_rate=sample_rate,
+                                               start_sample_s=start_sample_s,
+                                               end_sample_s=end_sample_s)
         # TODO: implement the following tasks
         case "phase_retrieval":
-            Scheduler = None
+            Scheduler = MusicPhaseRetrievalScheduler
+            Operator = MusicPhaseRetrievalOperator(n_fft=1024,
+                                                   hop_length=160,
+                                                   win_length=1024)
         case "super_resolution":
             Scheduler = None
+            Operator = None
         case _:
             raise ValueError(f"Unknown task: {args.task}")
 
     # prepare the pipeline
     pipe = Pipeline.from_pretrained(config.repo_id, torch_dtype=torch.float16)
-    pipe.scheduler = Scheduler(**config.scheduler)
+    pipe.scheduler = Scheduler(operator=Operator, **config.scheduler)
     pipe = pipe.to("cuda")
 
     # set the seed for generator
@@ -124,19 +142,29 @@ if __name__ == "__main__":
         gt_mel_spectrogram = wav2mel(gt_wave)
         gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1).unsqueeze(0)
         pipe.save_mel_spectrogram(gt_mel_spectrogram, f"results/gt_mel_spectrogram_{i}.png")
+        
+        # Inpainting
+        if args.task == "music_inpainting":
+            ref_wave = Operator.forward(ref_wave)
 
-        ref_mel_spectrogram = wav2mel(ref_wave)
-        ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
+            ref_mel_spectrogram = wav2mel(ref_wave)
+            ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
 
-        ref_wave = ref_wave.to("cuda")
-        ref_mel_spectrogram = ref_mel_spectrogram.to("cuda")
+            ref_wave = ref_wave.to("cuda")
+            ref_mel_spectrogram = ref_mel_spectrogram.to("cuda")
 
-        _, ref_phase = waveform_to_spectrogram(waveform=ref_wave)
-        ref_phase = ref_phase[:, :, : int(config.pipe.audio_length_in_s * 100)].to("cuda")
+            _, ref_phase = waveform_to_spectrogram(waveform=ref_wave)
+            ref_phase = ref_phase[:, :, : int(audio_length_in_s * 100)].to("cuda")
 
-        ref_wave = ref_wave.unsqueeze(0)
-        ref_mel_spectrogram = ref_mel_spectrogram.unsqueeze(0)
-        pipe.save_mel_spectrogram(ref_mel_spectrogram, f"results/input_mel_spectrogram_{i}.png")
+            ref_wave = ref_wave.unsqueeze(0)
+            ref_mel_spectrogram = ref_mel_spectrogram.unsqueeze(0)
+
+            measurement = ref_mel_spectrogram.clone()
+        elif args.task == "phase_retrieval":
+            magnitude = Operator.forward(ref_wave).to("cuda")
+            measurement = magnitude.clone()
+        else:
+            raise ValueError(f"Unknown task: {args.task}")
 
         # initialize the latents
         # latents = pipe.vae.encode(ref_mel_spectrogram.half()).latent_dist.sample(generator)
@@ -152,6 +180,7 @@ if __name__ == "__main__":
             ref_phase=ref_phase,
             start_inpainting_s=data["start_inpainting_s"],
             end_inpainting_s=data["end_inpainting_s"],
+            measurement=measurement,
             **config.pipe,
         ).audios
 

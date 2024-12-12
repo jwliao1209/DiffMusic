@@ -21,6 +21,22 @@ python run.py \
     --negative_prompt <Negative text prompt>
 ```
 
+## Generating Music for inverse problems
+For music inpainting, you can run the command:
+```
+python run.py \
+    --task "music_inpainting" \
+    --config_path "configs/audioldm2.yaml" \
+    --prompt ""
+```
+
+For phase retrieval, you can run the command:
+```
+python run.py \
+    --task "phase_retrieval" \
+    --config_path "configs/audioldm2.yaml" \
+    --prompt ""
+```
 
 ## Environment
 We implemented the code on an environment running Ubuntu 22.04.1, utilizing a 12th Generation Intel(R) Core(TM) i7-12700 CPU, along with a single NVIDIA GeForce RTX 4090 GPU equipped with 24 GB of dedicated memory.

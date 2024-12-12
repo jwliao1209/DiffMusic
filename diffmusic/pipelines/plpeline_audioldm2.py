@@ -927,6 +927,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         ref_phase: Optional[torch.Tensor] = None,
         start_inpainting_s: float = 0.0,
         end_inpainting_s: float = 0.0,
+        measurement: Optional[torch.Tensor] = None,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -1123,14 +1124,13 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                     noise_pred,
                     t,
                     latents,
-                    ref_wave=ref_wave,
-                    ref_mel_spectrogram=ref_mel_spectrogram,
+                    measurement=measurement,
                     original_waveform_length=original_waveform_length,
+                    audio_length_in_s=audio_length_in_s,
                     vae=self.vae,
                     vocoder=self.vocoder,
                     start_inpainting_s=start_inpainting_s,
                     end_inpainting_s=end_inpainting_s,
-                    audio_length_in_s=audio_length_in_s,
                     **extra_step_kwargs
                 )
 
