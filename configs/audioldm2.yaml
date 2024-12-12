@@ -2,7 +2,7 @@ name: audioldm2
 repo_id: cvssp/audioldm2
 pipe:
   num_inference_steps: 200
-  audio_length_in_s: 10
+  audio_length_in_s: 5
   num_waveforms_per_prompt: 1
 scheduler:
   num_train_timesteps: 1000
@@ -23,4 +23,13 @@ scheduler:
 data:
   name: wav
   root: ./data/samples/
-
+  sample_rate: 16000
+  n_fft: 1024
+  hop_length: 160
+  win_length: 1024
+  n_mels: 64
+  power: 2.0
+  start_s: 0
+  end_s: 5
+  start_inpainting_s: 2
+  end_inpainting_s: 3

@@ -925,6 +925,8 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         ref_wave: Optional[torch.Tensor] = None,
         ref_mel_spectrogram: Optional[torch.Tensor] = None,
         ref_phase: Optional[torch.Tensor] = None,
+        start_inpainting_s: float = 0.0,
+        end_inpainting_s: float = 0.0,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -1126,6 +1128,9 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                     original_waveform_length=original_waveform_length,
                     vae=self.vae,
                     vocoder=self.vocoder,
+                    start_inpainting_s=start_inpainting_s,
+                    end_inpainting_s=end_inpainting_s,
+                    audio_length_in_s=audio_length_in_s,
                     **extra_step_kwargs
                 )
 
@@ -1150,12 +1155,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
 
         # mel_spectrogram to waveform with SpeechT5HifiGan
         audio = self.mel_spectrogram_to_waveform(mel_spectrogram)
-
         audio = audio[:, :original_waveform_length]
-
-        pred_mel_spectrogram = self.wav2mel(audio)
-        pred_mel_spectrogram = pred_mel_spectrogram[:, :, :int(5 * 100)].permute(0, 2, 1)
-        self.save_mel_spectrogram(pred_mel_spectrogram, "pred_mel_spectrogram.png")
 
         # 9. Automatic scoring
         if num_waveforms_per_prompt > 1 and prompt is not None:

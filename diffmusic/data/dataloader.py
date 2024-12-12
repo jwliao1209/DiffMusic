@@ -2,17 +2,17 @@ from glob import glob
 from typing import Callable, Optional
 
 import numpy as np
-import torchaudio
 import torch
+import torchaudio
 import torchaudio.transforms as T
-from torch.utils.data import DataLoader, Dataset
 from pydub import AudioSegment
+from torch.utils.data import DataLoader, Dataset
 
 
 __DATASET__ = {}
 
 
-def register_dataset(name: str):
+def register_dataset(name: str) -> Callable:
     def wrapper(cls):
         if __DATASET__.get(name, None):
             raise NameError(f"Name {name} is already registered!")
@@ -21,30 +21,50 @@ def register_dataset(name: str):
     return wrapper
 
 
-def get_dataset(name: str, root: str, **kwargs):
+def get_dataset(name: str, root: str, **kwargs) -> Dataset:
     if __DATASET__.get(name, None) is None:
         raise NameError(f"Dataset {name} is not defined.")
     return __DATASET__[name](root=root, **kwargs)
 
 
-def get_dataloader(dataset: Dataset,
-                   batch_size: int,
-                   num_workers: int,
-                   train: bool):
-    dataloader = DataLoader(dataset,
-                            batch_size,
-                            shuffle=train,
-                            num_workers=num_workers,
-                            drop_last=train)
+def get_dataloader(
+    dataset: Dataset,
+    batch_size: int,
+    num_workers: int,
+    train: bool,
+):
+    dataloader = DataLoader(
+        dataset,
+        batch_size,
+        shuffle=train,
+        num_workers=num_workers,
+        drop_last=train
+    )
     return dataloader
 
 
 @register_dataset(name='wav')
 class WAVDataset(Dataset):
-    def __init__(self, root: str, sample_rate: int, transforms: Optional[Callable] = None):
+    def __init__(
+        self,
+        root: str,
+        sample_rate: int,
+        audio_length_in_s: int,
+        start_s: float,
+        end_s: float,
+        start_inpainting_s: float,
+        end_inpainting_s: float,
+        transforms: Optional[Callable] = None,
+    ):
         self.root = root
-        self.transforms = transforms
         self.sample_rate = sample_rate
+        self.audio_length_in_s = audio_length_in_s
+        self.start_s = start_s
+        self.end_s = end_s
+        self.start_inpainting_s = start_inpainting_s
+        self.end_inpainting_s = end_inpainting_s
+        self.transforms = transforms
+
         self.fpaths = sorted(glob(root + '/**/*.wav', recursive=True))
         assert len(self.fpaths) > 0, "File list is empty. Check the root."
 
@@ -66,5 +86,20 @@ class WAVDataset(Dataset):
 
         if self.transforms is not None:
             wave = self.transforms(wave)
- 
-        return wave, self.sample_rate, duration
+        
+        wave = wave[0]
+        ref_wave = wave.clone()
+        ref_wave[ 
+            int(self.start_inpainting_s * self.sample_rate) :
+            int(self.end_inpainting_s * self.sample_rate)
+        ] = 0.
+        ref_wave = ref_wave[int(self.start_s * self.sample_rate) : int(self.end_s * self.sample_rate)]
+        gt_wave = wave[int(self.start_s * self.sample_rate) : int(self.end_s * self.sample_rate)]
+
+        return {
+            "gt_wave": gt_wave,
+            "ref_wave": ref_wave,
+            "start_inpainting_s": self.start_inpainting_s - self.start_s,
+            "end_inpainting_s": self.end_inpainting_s - self.start_s,
+            "duration": duration,
+        }
