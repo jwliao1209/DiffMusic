@@ -13,10 +13,8 @@ from diffmusic.pipelines.pipeline_musicldm import MusicLDMPipeline
 from diffmusic.pipelines.pipeline_stable_audio import StableAudioPipeline
 from diffmusic.schedulers.scheduling_inpainting import MusicInpaintingScheduler
 from diffmusic.schedulers.scheduling_phase_retrieval import MusicPhaseRetrievalScheduler
-from diffmusic.data.operator import (MusicInpaintingOperator,
-                                     MusicPhaseRetrievalOperator)
+from diffmusic.data.operator import MusicInpaintingOperator, MusicPhaseRetrievalOperator
 from diffmusic.utils.utils import waveform_to_spectrogram
-
 
 
 def parse_arguments() -> Namespace:
@@ -44,7 +42,6 @@ def parse_arguments() -> Namespace:
     parser.add_argument(
         "--prompt",
         type=str,
-        # default="Western music, chill out, folk instrument R & B beat.",
         default="",
     )
     parser.add_argument(
@@ -56,14 +53,12 @@ def parse_arguments() -> Namespace:
 
 
 if __name__ == "__main__":
-    args = parse_arguments()
-    config = OmegaConf.load(args.config_path)
     os.makedirs("outputs", exist_ok=True)
     os.makedirs("results", exist_ok=True)
 
+    args = parse_arguments()
+    config = OmegaConf.load(args.config_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    audio_length_in_s = 5
-    sample_rate = 16000
 
     match config.name:
         case "audioldm2":
@@ -78,18 +73,22 @@ if __name__ == "__main__":
     match args.task:
         case "music_inpainting":
             Scheduler = MusicInpaintingScheduler
-            start_sample_s = 2
-            end_sample_s = 3
-            Operator = MusicInpaintingOperator(audio_length_in_s=audio_length_in_s,
-                                               sample_rate=sample_rate,
-                                               start_sample_s=start_sample_s,
-                                               end_sample_s=end_sample_s)
+            start_sample_s = config.data.start_inpainting_s - config.data.start_s
+            end_sample_s = config.data.end_inpainting_s - config.data.start_s
+            Operator = MusicInpaintingOperator(
+                audio_length_in_s=config.pipe.audio_length_in_s,
+                sample_rate=config.data.sample_rate,
+                start_sample_s=start_sample_s,
+                end_sample_s=end_sample_s,
+            )
         # TODO: implement the following tasks
         case "phase_retrieval":
             Scheduler = MusicPhaseRetrievalScheduler
-            Operator = MusicPhaseRetrievalOperator(n_fft=1024,
-                                                   hop_length=160,
-                                                   win_length=1024)
+            Operator = MusicPhaseRetrievalOperator(
+                n_fft=config.data.n_fft,
+                hop_length=config.data.hop_length,
+                win_length=config.data.win_length,
+            )
         case "super_resolution":
             Scheduler = None
             Operator = None
@@ -146,7 +145,8 @@ if __name__ == "__main__":
         # Inpainting
         if args.task == "music_inpainting":
             ref_wave = Operator.forward(ref_wave)
-
+            
+            # TODO: move mel spectrogram to dataloader
             ref_mel_spectrogram = wav2mel(ref_wave)
             ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
 
@@ -154,7 +154,7 @@ if __name__ == "__main__":
             ref_mel_spectrogram = ref_mel_spectrogram.to("cuda")
 
             _, ref_phase = waveform_to_spectrogram(waveform=ref_wave)
-            ref_phase = ref_phase[:, :, : int(audio_length_in_s * 100)].to("cuda")
+            ref_phase = ref_phase[:, :, : int(config.pipe.audio_length_in_s * 100)].to("cuda")
 
             ref_wave = ref_wave.unsqueeze(0)
             ref_mel_spectrogram = ref_mel_spectrogram.unsqueeze(0)
