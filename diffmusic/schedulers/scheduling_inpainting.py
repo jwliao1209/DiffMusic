@@ -11,6 +11,8 @@ from pydub import AudioSegment
 from tqdm import tqdm
 import torchaudio
 
+from diffmusic.data.operator import MusicInpaintingOperator
+
 
 def gram_matrix(x):
     b, c, h, w = x.shape
@@ -23,6 +25,7 @@ class MusicInpaintingScheduler(DDIMScheduler):
     @register_to_config
     def __init__(
         self,
+        operator: MusicInpaintingOperator = None,
         num_train_timesteps: int = 1000,
         beta_start: float = 0.0001,
         beta_end: float = 0.02,
@@ -58,6 +61,8 @@ class MusicInpaintingScheduler(DDIMScheduler):
             timestep_spacing=timestep_spacing,
             rescale_betas_zero_snr=rescale_betas_zero_snr,
         )
+
+        self.operator = operator
 
         self.wav2mel = torch.nn.Sequential(
             torchaudio.transforms.MelSpectrogram(
@@ -116,8 +121,7 @@ class MusicInpaintingScheduler(DDIMScheduler):
         # args for inverse problem
         start_sample_s: int = 2,
         end_sample_s: int = 3,
-        ref_wave: Optional[torch.Tensor] = None,
-        ref_mel_spectrogram: Optional[torch.Tensor] = None,
+        measurement: Optional[torch.Tensor] = None,  # ref_mel_spectrogram
         rec_weight: float = 1.,
         style_weight: float = 0.05,
         style_weight2: float = 1.,
@@ -126,6 +130,7 @@ class MusicInpaintingScheduler(DDIMScheduler):
         vae: AutoencoderKL = None,
         vocoder: SpeechT5HifiGan = None,
         original_waveform_length: int = 0,
+        audio_length_in_s: int = 0,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
 
         with torch.enable_grad():
@@ -161,13 +166,14 @@ class MusicInpaintingScheduler(DDIMScheduler):
             pred_audio = self.mel_spectrogram_to_waveform(pred_mel_spectrogram, vocoder)
             pred_audio = pred_audio[:, :original_waveform_length]
 
+            # Inpainting
+            pred_audio = self.operator.forward(pred_audio)
+
             reproject_mel_spectrogram = self.wav2mel(pred_audio)
-            reproject_mel_spectrogram = reproject_mel_spectrogram[:, :, :5 * 100].permute(0, 2, 1).unsqueeze(0)
+            reproject_mel_spectrogram = reproject_mel_spectrogram[:, :, :audio_length_in_s * 100].permute(0, 2, 1).unsqueeze(0)
             reproject_mel_spectrogram = torch.clamp(reproject_mel_spectrogram, min=-80, max=80)
 
-            difference_mel = ref_mel_spectrogram - reproject_mel_spectrogram
-            difference_mel[:, :, start_sample_s * 100: end_sample_s * 100] = 0.
-
+            difference_mel = measurement - reproject_mel_spectrogram
             rec_loss = torch.linalg.norm(difference_mel)
 
             # style_loss (gram_matrix)

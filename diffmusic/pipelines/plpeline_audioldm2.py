@@ -922,9 +922,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         output_type: Optional[str] = "np",
         # For inverse problem
-        ref_wave: Optional[torch.Tensor] = None,
-        ref_mel_spectrogram: Optional[torch.Tensor] = None,
-        ref_phase: Optional[torch.Tensor] = None,
+        measurement: Optional[torch.Tensor] = None,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -1121,9 +1119,9 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                     noise_pred,
                     t,
                     latents,
-                    ref_wave=ref_wave,
-                    ref_mel_spectrogram=ref_mel_spectrogram,
+                    measurement=measurement,
                     original_waveform_length=original_waveform_length,
+                    audio_length_in_s=audio_length_in_s,
                     vae=self.vae,
                     vocoder=self.vocoder,
                     **extra_step_kwargs
@@ -1155,7 +1153,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
 
         pred_mel_spectrogram = self.wav2mel(audio)
         pred_mel_spectrogram = pred_mel_spectrogram[:, :, :int(5 * 100)].permute(0, 2, 1)
-        self.save_mel_spectrogram(pred_mel_spectrogram, "pred_mel_spectrogram.png")
+        self.save_mel_spectrogram(pred_mel_spectrogram, "outputs/pred_mel_spectrogram.png")
 
         # 9. Automatic scoring
         if num_waveforms_per_prompt > 1 and prompt is not None:
