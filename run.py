@@ -73,16 +73,18 @@ if __name__ == "__main__":
     match args.task:
         case "music_inpainting":
             Scheduler = MusicInpaintingScheduler
-            start_sample_s = config.data.start_inpainting_s - config.data.start_s
-            end_sample_s = config.data.end_inpainting_s - config.data.start_s
+            start_inpainting_s = config.data.start_inpainting_s - config.data.start_s
+            end_inpainting_s = config.data.end_inpainting_s - config.data.start_s
             Operator = MusicInpaintingOperator(
                 audio_length_in_s=config.pipe.audio_length_in_s,
                 sample_rate=config.data.sample_rate,
-                start_sample_s=start_sample_s,
-                end_sample_s=end_sample_s,
+                start_inpainting_s=start_inpainting_s,
+                end_inpainting_s=end_inpainting_s,
             )
         # TODO: implement the following tasks
         case "phase_retrieval":
+            start_inpainting_s = None
+            end_inpainting_s = None
             Scheduler = MusicPhaseRetrievalScheduler
             Operator = MusicPhaseRetrievalOperator(
                 n_fft=config.data.n_fft,
@@ -124,8 +126,6 @@ if __name__ == "__main__":
         audio_length_in_s=config.pipe.audio_length_in_s,
         start_s=config.data.start_s,
         end_s=config.data.end_s,
-        start_inpainting_s=config.data.start_inpainting_s,
-        end_inpainting_s=config.data.end_inpainting_s,
         transforms=None,
     )
 
@@ -133,22 +133,19 @@ if __name__ == "__main__":
     print('Number of samples: ', len(loader))
 
     # run the generation
-    for i, data in enumerate(loader, start=1):
-        gt_wave = data["gt_wave"]
-        ref_wave = data["ref_wave"]
-        duration = data["duration"]
-
+    for i, gt_wave in enumerate(loader, start=1):
         gt_mel_spectrogram = wav2mel(gt_wave)
         gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1).unsqueeze(0)
         pipe.save_mel_spectrogram(gt_mel_spectrogram, f"results/gt_mel_spectrogram_{i}.png")
-        
+
         # Inpainting
         if args.task == "music_inpainting":
             ref_wave = Operator.forward(ref_wave)
-            
+
             # TODO: move mel spectrogram to dataloader
             ref_mel_spectrogram = wav2mel(ref_wave)
             ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
+            pipe.save_mel_spectrogram(ref_mel_spectrogram.unsqueeze(0), f"results/degraded_mel_spectrogram_{i}.png")
 
             ref_wave = ref_wave.to("cuda")
             ref_mel_spectrogram = ref_mel_spectrogram.to("cuda")
@@ -156,12 +153,11 @@ if __name__ == "__main__":
             _, ref_phase = waveform_to_spectrogram(waveform=ref_wave)
             ref_phase = ref_phase[:, :, : int(config.pipe.audio_length_in_s * 100)].to("cuda")
 
-            ref_wave = ref_wave.unsqueeze(0)
             ref_mel_spectrogram = ref_mel_spectrogram.unsqueeze(0)
 
-            measurement = ref_mel_spectrogram.clone()
+            measurement = ref_wave.clone()
         elif args.task == "phase_retrieval":
-            magnitude = Operator.forward(ref_wave).to("cuda")
+            magnitude = Operator.forward(gt_wave).to("cuda")
             measurement = magnitude.clone()
         else:
             raise ValueError(f"Unknown task: {args.task}")
@@ -175,11 +171,8 @@ if __name__ == "__main__":
             prompt=args.prompt,
             negative_prompt=args.negative_prompt,
             generator=generator,
-            ref_wave=ref_wave,
-            ref_mel_spectrogram=ref_mel_spectrogram,
-            ref_phase=ref_phase,
-            start_inpainting_s=data["start_inpainting_s"],
-            end_inpainting_s=data["end_inpainting_s"],
+            start_inpainting_s=start_inpainting_s,
+            end_inpainting_s=end_inpainting_s,
             measurement=measurement,
             **config.pipe,
         ).audios
@@ -192,14 +185,15 @@ if __name__ == "__main__":
         )
 
         # save degraded inputs (inpainting)
-        reconstructed_degraded_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
-            ref_mel_spectrogram.cpu(), ref_phase.cpu())
+        if args.task == "music_inpainting":
+            reconstructed_degraded_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
+                ref_mel_spectrogram.cpu(), ref_phase.cpu())
 
-        scipy.io.wavfile.write(
-            f"outputs/{config.name}_input_music_{i}.wav",
-            rate=config.data.sample_rate,
-            data=reconstructed_degraded_waveform_with_phase.cpu().detach().numpy()[0],
-        )
+            scipy.io.wavfile.write(
+                f"outputs/{config.name}_input_music_{i}.wav",
+                rate=config.data.sample_rate,
+                data=reconstructed_degraded_waveform_with_phase.cpu().detach().numpy()[0],
+            )
 
         # save the predicted mel spectrogram
         pred_mel_spectrogram = wav2mel(torch.tensor(audio))
