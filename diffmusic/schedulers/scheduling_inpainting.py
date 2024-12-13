@@ -121,18 +121,14 @@ class MusicInpaintingScheduler(DDIMScheduler):
         # args for inverse problem
         ref_wave: Optional[torch.Tensor] = None,
         ref_mel_spectrogram: Optional[torch.Tensor] = None,
-        measurement: Optional[torch.Tensor] = None,  # ref_mel_spectrogram
-        rec_weight: float = 1.,
-        style_weight: float = 0.05,
-        style_weight2: float = 1.,
-        style_weight3: float = 0.005,
-        learning_rate: float = 3e-4,
+        measurement: Optional[torch.Tensor] = None,  # ref_wav
+        rec_weight: float = 0.8,
+        mag_weight: float = 0.2,
+        phase_weight: float = 0.2,
+        learning_rate: float = 5e-4,
         vae: AutoencoderKL = None,
         vocoder: SpeechT5HifiGan = None,
         original_waveform_length: int = 0,
-        start_inpainting_s: float = 0,
-        end_inpainting_s: float = 0,
-        audio_length_in_s: float = 0,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
 
         with torch.enable_grad():
@@ -171,37 +167,26 @@ class MusicInpaintingScheduler(DDIMScheduler):
             # Inpainting
             pred_audio = self.operator.forward(pred_audio)
 
-            reproject_mel_spectrogram = self.wav2mel(pred_audio)
-            reproject_mel_spectrogram = reproject_mel_spectrogram[:, :, :audio_length_in_s * 100].permute(0, 2, 1).unsqueeze(0)
-            reproject_mel_spectrogram = torch.clamp(reproject_mel_spectrogram, min=-80, max=80)
+            ref_mel = self.wav2mel(measurement)
+            pred_mel = self.wav2mel(pred_audio)
 
-            difference_mel = measurement - reproject_mel_spectrogram
+            ref_mel = torch.clamp(ref_mel, min=-80, max=80)
+            pred_mel = torch.clamp(pred_mel, min=-80, max=80)
+
+            difference_mel = ref_mel - pred_mel
             rec_loss = torch.linalg.norm(difference_mel)
+            rec_loss = torch.nan_to_num(rec_loss)
 
-            # style_loss (gram_matrix)
-            # gram_measurement = gram_matrix(ref_mel_spectrogram)
-            # gram_pred = gram_matrix(reproject_mel_spectrogram)
-            #
-            # style_loss = torch.linalg.norm(gram_measurement - gram_pred)
+            ref_magnitude, ref_phase = self.waveform_to_spectrogram(measurement)
+            pred_magnitude, pred_phase = self.waveform_to_spectrogram(pred_audio)
 
-            # style_loss2 (calculate mean and std)
-            # constrained_mask = torch.ones_like(pred_audio)
-            # constrained_mask[:, start_sample_s * 16000: end_sample_s * 16000] = 0.
-            # unconstrained_mask = 1 - constrained_mask
-            #
-            # style_loss2 = self.style_loss(pred_audio, constrained_mask, unconstrained_mask)
+            difference_magnitude = ref_magnitude - pred_magnitude
+            difference_phase = ref_phase - pred_phase
 
-            # style_loss3 (calculate mean and std)
-            # start_sample = 1000
-            # end_sample = 1500
-            # constrained_mask = torch.ones_like(reproject_mel_spectrogram)
-            # constrained_mask[:, :, start_sample: end_sample, :] = 0.
-            # unconstrained_mask = 1 - constrained_mask
-            #
-            # style_loss3 = self.style_loss(ref_mel_spectrogram, reproject_mel_spectrogram, constrained_mask, unconstrained_mask)
+            mag_loss = torch.linalg.norm(difference_magnitude)
+            phase_loss = torch.linalg.norm(difference_phase)
 
-            norm = rec_weight * rec_loss  # + style_weight * style_loss
-            tqdm.write(f"rec_loss: {rec_loss}")
+            norm = rec_weight * rec_loss + mag_weight * mag_loss + phase_weight * phase_loss
 
             norm_grad = torch.autograd.grad(outputs=norm, inputs=sample)[0]
             prev_sample -= learning_rate * norm_grad

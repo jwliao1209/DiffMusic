@@ -50,10 +50,8 @@ class WAVDataset(Dataset):
         root: str,
         sample_rate: int,
         audio_length_in_s: int,
-        start_s: float,
-        end_s: float,
-        start_inpainting_s: float,
-        end_inpainting_s: float,
+        start_s: float = 0,
+        end_s: float = 0,
         transforms: Optional[Callable] = None,
     ):
         self.root = root
@@ -61,8 +59,6 @@ class WAVDataset(Dataset):
         self.audio_length_in_s = audio_length_in_s
         self.start_s = start_s
         self.end_s = end_s
-        self.start_inpainting_s = start_inpainting_s
-        self.end_inpainting_s = end_inpainting_s
         self.transforms = transforms
 
         self.fpaths = sorted(glob(root + '/**/*.wav', recursive=True))
@@ -88,18 +84,6 @@ class WAVDataset(Dataset):
             wave = self.transforms(wave)
         
         wave = wave[0]
-        ref_wave = wave.clone()
-        ref_wave[ 
-            int(self.start_inpainting_s * self.sample_rate) :
-            int(self.end_inpainting_s * self.sample_rate)
-        ] = 0.
-        ref_wave = ref_wave[int(self.start_s * self.sample_rate) : int(self.end_s * self.sample_rate)]
-        gt_wave = wave[int(self.start_s * self.sample_rate) : int(self.end_s * self.sample_rate)]
+        gt_wave = wave[int(self.start_s * self.sample_rate): int(self.end_s * self.sample_rate)]
 
-        return {
-            "gt_wave": gt_wave,
-            "ref_wave": ref_wave,
-            "start_inpainting_s": self.start_inpainting_s - self.start_s,
-            "end_inpainting_s": self.end_inpainting_s - self.start_s,
-            "duration": duration,
-        }
+        return gt_wave

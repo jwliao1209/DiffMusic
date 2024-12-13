@@ -922,9 +922,6 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         output_type: Optional[str] = "np",
         # For inverse problem
-        ref_wave: Optional[torch.Tensor] = None,
-        ref_mel_spectrogram: Optional[torch.Tensor] = None,
-        ref_phase: Optional[torch.Tensor] = None,
         start_inpainting_s: float = 0.0,
         end_inpainting_s: float = 0.0,
         measurement: Optional[torch.Tensor] = None,
@@ -1126,11 +1123,8 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                     latents,
                     measurement=measurement,
                     original_waveform_length=original_waveform_length,
-                    audio_length_in_s=audio_length_in_s,
                     vae=self.vae,
                     vocoder=self.vocoder,
-                    start_inpainting_s=start_inpainting_s,
-                    end_inpainting_s=end_inpainting_s,
                     **extra_step_kwargs
                 )
 

@@ -38,6 +38,7 @@ from diffusers.utils import (
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers import AudioPipelineOutput, DiffusionPipeline, StableDiffusionMixin
 
+import torchaudio
 
 if is_librosa_available():
     import librosa
@@ -256,6 +257,47 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
         waveform = waveform.cpu().float()
         return waveform
 
+    # For inverse problem (Ours)
+    def mel_spectrogram_to_waveform_with_phase(
+            self,
+            mel_spectrogram,
+            original_phase,
+            n_fft=1024,
+            hop_length=160,
+            win_length=1024,
+            original_waveform_length=0,
+    ):
+        mel_spectrogram = mel_spectrogram.squeeze(1).permute(0, 2, 1)
+        original_phase = original_phase.squeeze(0)
+
+        if mel_spectrogram.dtype != original_phase.dtype:
+            mel_spectrogram = mel_spectrogram.to(original_phase.dtype)
+
+        linear_spectrogram = torchaudio.transforms.InverseMelScale(
+            n_stft=n_fft // 2 + 1,
+            n_mels=mel_spectrogram.size(1),
+            sample_rate=16000
+        )(mel_spectrogram)
+        complex_spectrogram = linear_spectrogram * torch.exp(1j * original_phase)
+        waveform = torch.istft(
+            complex_spectrogram,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            win_length=win_length
+        )
+
+        # check size
+        if original_waveform_length > 0:
+            if waveform.shape[-1] > original_waveform_length:
+                # clip
+                waveform = waveform[..., :original_waveform_length]
+            elif waveform.shape[-1] < original_waveform_length:
+                # padding
+                pad_length = original_waveform_length - waveform.shape[-1]
+                waveform = torch.nn.functional.pad(waveform, (0, pad_length))
+
+        return waveform
+
     # Copied from diffusers.pipelines.audioldm2.pipeline_audioldm2.AudioLDM2Pipeline.score_waveforms
     def score_waveforms(self, text, audio, num_waveforms_per_prompt, device, dtype):
         if not is_librosa_available():
@@ -415,6 +457,29 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
         # We'll offload the last model manually.
         self.final_offload_hook = hook
 
+    def save_mel_spectrogram(self, mel_spectrogram, file_path, sample_rate=16000, hop_length=160, title="Mel Spectrogram"):
+        import matplotlib.pyplot as plt
+
+        mel_spectrogram = mel_spectrogram.squeeze(0).squeeze(0)
+
+        mel_spectrogram = mel_spectrogram.cpu().numpy()
+
+        time_axis = torch.arange(mel_spectrogram.shape[0]) * hop_length / sample_rate
+        freq_axis = torch.linspace(0, sample_rate / 2, mel_spectrogram.shape[1])
+
+        plt.figure(figsize=(10, 6))
+        plt.imshow(mel_spectrogram.T, aspect='auto', origin='lower', cmap='magma',
+                   extent=[time_axis[0], time_axis[-1], freq_axis[0], freq_axis[-1]],
+                   vmin=-80, vmax=80)
+        plt.colorbar(label="Amplitude (dB)")
+        plt.title(title)
+        plt.xlabel("Time (s)")
+        plt.ylabel("Frequency (Hz)")
+        plt.tight_layout()
+
+        plt.savefig(file_path, format='png', dpi=300)
+        plt.close()
+
     @torch.no_grad()
     @replace_example_docstring(EXAMPLE_DOC_STRING)
     def __call__(
@@ -435,6 +500,10 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
         callback_steps: Optional[int] = 1,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         output_type: Optional[str] = "np",
+        # For inverse problem
+        start_inpainting_s: float = 0.0,
+        end_inpainting_s: float = 0.0,
+        measurement: Optional[torch.Tensor] = None,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -442,31 +511,32 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
         Args:
             prompt (`str` or `List[str]`, *optional*):
                 The prompt or prompts to guide audio generation. If not defined, you need to pass `prompt_embeds`.
+            transcription (`str` or `List[str]`, *optional*):\
+                The transcript for text to speech.
             audio_length_in_s (`int`, *optional*, defaults to 10.24):
                 The length of the generated audio sample in seconds.
             num_inference_steps (`int`, *optional*, defaults to 200):
                 The number of denoising steps. More denoising steps usually lead to a higher quality audio at the
                 expense of slower inference.
-            guidance_scale (`float`, *optional*, defaults to 2.0):
+            guidance_scale (`float`, *optional*, defaults to 3.5):
                 A higher guidance scale value encourages the model to generate audio that is closely linked to the text
                 `prompt` at the expense of lower sound quality. Guidance scale is enabled when `guidance_scale > 1`.
             negative_prompt (`str` or `List[str]`, *optional*):
                 The prompt or prompts to guide what to not include in audio generation. If not defined, you need to
                 pass `negative_prompt_embeds` instead. Ignored when not using guidance (`guidance_scale < 1`).
             num_waveforms_per_prompt (`int`, *optional*, defaults to 1):
-                The number of waveforms to generate per prompt. If `num_waveforms_per_prompt > 1`, the text encoding
-                model is a joint text-audio model ([`~transformers.ClapModel`]), and the tokenizer is a
-                `[~transformers.ClapProcessor]`, then automatic scoring will be performed between the generated outputs
-                and the input text. This scoring ranks the generated waveforms based on their cosine similarity to text
-                input in the joint text-audio embedding space.
+                The number of waveforms to generate per prompt. If `num_waveforms_per_prompt > 1`, then automatic
+                scoring is performed between the generated outputs and the text prompt. This scoring ranks the
+                generated waveforms based on their cosine similarity with the text input in the joint text-audio
+                embedding space.
             eta (`float`, *optional*, defaults to 0.0):
-                Corresponds to parameter eta (η) from the [DDIM](https://arxiv.org/abs/2010.02502) paper. Only applies
+                Corresponds to parameter eta from the [DDIM](https://arxiv.org/abs/2010.02502) paper. Only applies
                 to the [`~schedulers.DDIMScheduler`], and is ignored in other schedulers.
             generator (`torch.Generator` or `List[torch.Generator]`, *optional*):
                 A [`torch.Generator`](https://pytorch.org/docs/stable/generated/torch.Generator.html) to make
                 generation deterministic.
             latents (`torch.Tensor`, *optional*):
-                Pre-generated noisy latents sampled from a Gaussian distribution, to be used as inputs for image
+                Pre-generated noisy latents sampled from a Gaussian distribution, to be used as inputs for spectrogram
                 generation. Can be used to tweak the same generation with different prompts. If not provided, a latents
                 tensor is generated by sampling using the supplied random `generator`.
             prompt_embeds (`torch.Tensor`, *optional*):
@@ -475,8 +545,26 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
             negative_prompt_embeds (`torch.Tensor`, *optional*):
                 Pre-generated negative text embeddings. Can be used to easily tweak text inputs (prompt weighting). If
                 not provided, `negative_prompt_embeds` are generated from the `negative_prompt` input argument.
+            generated_prompt_embeds (`torch.Tensor`, *optional*):
+                Pre-generated text embeddings from the GPT2 langauge model. Can be used to easily tweak text inputs,
+                 *e.g.* prompt weighting. If not provided, text embeddings will be generated from `prompt` input
+                 argument.
+            negative_generated_prompt_embeds (`torch.Tensor`, *optional*):
+                Pre-generated negative text embeddings from the GPT2 language model. Can be used to easily tweak text
+                inputs, *e.g.* prompt weighting. If not provided, negative_prompt_embeds will be computed from
+                `negative_prompt` input argument.
+            attention_mask (`torch.LongTensor`, *optional*):
+                Pre-computed attention mask to be applied to the `prompt_embeds`. If not provided, attention mask will
+                be computed from `prompt` input argument.
+            negative_attention_mask (`torch.LongTensor`, *optional*):
+                Pre-computed attention mask to be applied to the `negative_prompt_embeds`. If not provided, attention
+                mask will be computed from `negative_prompt` input argument.
+            max_new_tokens (`int`, *optional*, defaults to None):
+                Number of new tokens to generate with the GPT2 language model. If not provided, number of tokens will
+                be taken from the config of the model.
             return_dict (`bool`, *optional*, defaults to `True`):
-                Whether or not to return a [`~pipelines.AudioPipelineOutput`] instead of a plain tuple.
+                Whether or not to return a [`~pipelines.stable_diffusion.StableDiffusionPipelineOutput`] instead of a
+                plain tuple.
             callback (`Callable`, *optional*):
                 A function that calls every `callback_steps` steps during inference. The function is called with the
                 following arguments: `callback(step: int, timestep: int, latents: torch.Tensor)`.
@@ -494,9 +582,9 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
         Examples:
 
         Returns:
-            [`~pipelines.AudioPipelineOutput`] or `tuple`:
-                If `return_dict` is `True`, [`~pipelines.AudioPipelineOutput`] is returned, otherwise a `tuple` is
-                returned where the first element is a list with the generated audio.
+            [`~pipelines.stable_diffusion.StableDiffusionPipelineOutput`] or `tuple`:
+                If `return_dict` is `True`, [`~pipelines.stable_diffusion.StableDiffusionPipelineOutput`] is returned,
+                otherwise a `tuple` is returned where the first element is a list with the generated audio.
         """
         # 0. Convert audio input length from seconds to spectrogram height
         vocoder_upsample_factor = np.prod(self.vocoder.config.upsample_rates) / self.vocoder.config.sampling_rate
@@ -594,10 +682,24 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample
+                out, distance = self.scheduler.step(
+                    noise_pred,
+                    t,
+                    latents,
+                    measurement=measurement,
+                    original_waveform_length=original_waveform_length,
+                    vae=self.vae,
+                    vocoder=self.vocoder,
+                    start_inpainting_s=start_inpainting_s,
+                    end_inpainting_s=end_inpainting_s,
+                    **extra_step_kwargs
+                )
+
+                latents = out.prev_sample.detach()
 
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                    progress_bar.set_description("distance: {:.6f}".format(distance.item()))
                     progress_bar.update()
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.scheduler, "order", 1)
@@ -612,8 +714,8 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
         else:
             return AudioPipelineOutput(audios=latents)
 
+        # mel_spectrogram to waveform with SpeechT5HifiGan
         audio = self.mel_spectrogram_to_waveform(mel_spectrogram)
-
         audio = audio[:, :original_waveform_length]
 
         # 9. Automatic scoring

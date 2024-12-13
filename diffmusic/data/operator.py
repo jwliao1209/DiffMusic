@@ -6,10 +6,10 @@ class MusicInpaintingOperator:
     This operator get pre-defined mask and return masked music.
     """
 
-    def __init__(self, audio_length_in_s, sample_rate, start_sample_s, end_sample_s):
+    def __init__(self, audio_length_in_s, sample_rate, start_inpainting_s, end_inpainting_s):
         # generate mask for box inpainting
         self.mask = torch.ones([1, audio_length_in_s * sample_rate])
-        self.mask[:, start_sample_s * sample_rate: end_sample_s * sample_rate] = 0.
+        self.mask[:, start_inpainting_s * sample_rate: end_inpainting_s * sample_rate] = 0.
 
     def forward(self, data):
         return data * self.mask.to(data.device)

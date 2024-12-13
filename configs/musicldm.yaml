@@ -1,8 +1,8 @@
 name: musicldm
 repo_id: ucsd-reach/musicldm
 pipe:
-  num_inference_steps: 10
-  audio_length_in_s: 5.0
+  num_inference_steps: 200
+  audio_length_in_s: 5
 scheduler:
   num_train_timesteps: 1000
   beta_start: 0.0015
@@ -19,3 +19,16 @@ scheduler:
   sample_max_value: 1.0
   timestep_spacing: leading
   rescale_betas_zero_snr: False
+data:
+  name: wav
+  root: ./data/samples/
+  sample_rate: 16000
+  n_fft: 1024
+  hop_length: 160
+  win_length: 1024
+  n_mels: 64
+  power: 2.0
+  start_s: 0
+  end_s: 5
+  start_inpainting_s: 2
+  end_inpainting_s: 3
