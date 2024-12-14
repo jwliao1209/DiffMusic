@@ -20,7 +20,7 @@ def gram_matrix(x):
     return torch.einsum("bchw,bdhw->bcd", x / scale, x / scale)
 
 
-class MusicPhaseRetrievalScheduler(DDIMScheduler):
+class MusicDereverberationScheduler(DDIMScheduler):
 
     @register_to_config
     def __init__(
@@ -128,7 +128,7 @@ class MusicPhaseRetrievalScheduler(DDIMScheduler):
         variance_noise: Optional[torch.Tensor] = None,
         return_dict: bool = True,
         # args for inverse problem
-        measurement: Optional[torch.Tensor] = None,  # magnitude
+        measurement: Optional[torch.Tensor] = None,  # ref_wav
         rec_weight: float = 1.,
         learning_rate: float = 8e-4,
         vae: AutoencoderKL = None,
@@ -169,11 +169,11 @@ class MusicPhaseRetrievalScheduler(DDIMScheduler):
             pred_audio = self.mel_spectrogram_to_waveform(pred_mel_spectrogram, vocoder)
             pred_audio = pred_audio[:, :original_waveform_length]
 
-            # Phase Retrieval
-            pred_magnitude = self.operator.forward(pred_audio)
+            # Super-Resolution (Downsample)
+            pred_audio = self.operator.forward(pred_audio)
 
-            ref_mel = self.magnitude_to_mel_spectrogram(measurement)
-            pred_mel = self.magnitude_to_mel_spectrogram(pred_magnitude.float())
+            ref_mel = self.wav2mel(measurement)
+            pred_mel = self.wav2mel(pred_audio)
 
             ref_mel = torch.clamp(ref_mel, min=-80, max=80)
             pred_mel = torch.clamp(pred_mel, min=-80, max=80)

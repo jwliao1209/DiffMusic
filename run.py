@@ -13,7 +13,15 @@ from diffmusic.pipelines.pipeline_musicldm import MusicLDMPipeline
 from diffmusic.pipelines.pipeline_stable_audio import StableAudioPipeline
 from diffmusic.schedulers.scheduling_inpainting import MusicInpaintingScheduler
 from diffmusic.schedulers.scheduling_phase_retrieval import MusicPhaseRetrievalScheduler
-from diffmusic.data.operator import MusicInpaintingOperator, MusicPhaseRetrievalOperator
+from diffmusic.schedulers.scheduling_super_resolution import MusicSuperResolutionScheduler
+from diffmusic.schedulers.scheduling_dereverberation import MusicDereverberationScheduler
+from diffmusic.schedulers.scheduling_source_separation import MusicSourceSeparationScheduler
+
+from diffmusic.data.operator import (MusicInpaintingOperator,
+                                     MusicPhaseRetrievalOperator,
+                                     MusicSuperResolutionOperator,
+                                     MusicDereverberationOperator,
+                                     MusicSourceSeparationOperator)
 from diffmusic.utils.utils import waveform_to_spectrogram
 
 
@@ -27,6 +35,8 @@ def parse_arguments() -> Namespace:
             "music_inpainting",
             "phase_retrieval",
             "super_resolution",
+            "dereverberation",
+            "source_separation"
         ],
     )
     parser.add_argument(
@@ -75,16 +85,17 @@ if __name__ == "__main__":
             Scheduler = MusicInpaintingScheduler
             start_inpainting_s = config.data.start_inpainting_s - config.data.start_s
             end_inpainting_s = config.data.end_inpainting_s - config.data.start_s
+            downsample_scale = 1
             Operator = MusicInpaintingOperator(
                 audio_length_in_s=config.pipe.audio_length_in_s,
                 sample_rate=config.data.sample_rate,
                 start_inpainting_s=start_inpainting_s,
                 end_inpainting_s=end_inpainting_s,
             )
-        # TODO: implement the following tasks
         case "phase_retrieval":
             start_inpainting_s = None
             end_inpainting_s = None
+            downsample_scale = 1
             Scheduler = MusicPhaseRetrievalScheduler
             Operator = MusicPhaseRetrievalOperator(
                 n_fft=config.data.n_fft,
@@ -92,8 +103,32 @@ if __name__ == "__main__":
                 win_length=config.data.win_length,
             )
         case "super_resolution":
-            Scheduler = None
-            Operator = None
+            start_inpainting_s = None
+            end_inpainting_s = None
+            downsample_scale = 5
+            Scheduler = MusicSuperResolutionScheduler
+            Operator = MusicSuperResolutionOperator(
+                sample_rate=config.data.sample_rate,
+                scale=downsample_scale,
+            )
+        case "dereverberation":
+            start_inpainting_s = None
+            end_inpainting_s = None
+            downsample_scale = 1
+            Scheduler = MusicDereverberationScheduler
+            Operator = MusicDereverberationOperator(
+                ir_length=5000,
+                decay_factor=0.99
+            )
+        case "source_separation":
+            start_inpainting_s = None
+            end_inpainting_s = None
+            downsample_scale = 1
+            config.pipe.num_waveforms_per_prompt = 2
+            Scheduler = MusicSourceSeparationScheduler
+            Operator = MusicSourceSeparationOperator(
+                num_mix=2
+            )
         case _:
             raise ValueError(f"Unknown task: {args.task}")
 
@@ -118,34 +153,53 @@ if __name__ == "__main__":
         torchaudio.transforms.AmplitudeToDB(stype="power")
     )
 
-    # transform = None
-    dataset = get_dataset(
-        name=config.data.name,
-        root=config.data.root,
-        sample_rate=config.data.sample_rate,
-        audio_length_in_s=config.pipe.audio_length_in_s,
-        start_s=config.data.start_s,
-        end_s=config.data.end_s,
-        transforms=None,
-    )
+    if args.task == "source_separation":
+        dataset = get_dataset(
+            name="source_separation",
+            root=config.data.root,
+            sample_rate=config.data.sample_rate,
+            audio_length_in_s=config.pipe.audio_length_in_s,
+            start_s=config.data.start_s,
+            end_s=config.data.end_s,
+            transforms=None,
+        )
+    else:
+        dataset = get_dataset(
+            name=config.data.name,
+            root=config.data.root,
+            sample_rate=config.data.sample_rate,
+            audio_length_in_s=config.pipe.audio_length_in_s,
+            start_s=config.data.start_s,
+            end_s=config.data.end_s,
+            transforms=None,
+        )
 
     loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
     print('Number of samples: ', len(loader))
 
     # run the generation
-    for i, gt_wave in enumerate(loader, start=1):
+    for i, data in enumerate(loader, start=1):
+        if args.task == "source_separation":
+            gt_wave, other_wave = data
+        else:
+            gt_wave, other_wave = data, None
+
         gt_mel_spectrogram = wav2mel(gt_wave)
         gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1).unsqueeze(0)
-        pipe.save_mel_spectrogram(gt_mel_spectrogram, f"results/gt_mel_spectrogram_{i}.png")
+        pipe.save_mel_spectrogram(gt_mel_spectrogram, f"results/{config.name}_gt_mel_spectrogram_{i}.png")
 
-        # Inpainting
-        if args.task == "music_inpainting":
-            ref_wave = Operator.forward(ref_wave)
+        if args.task != "phase_retrieval":
+            ref_wave = Operator.forward(data)
 
             # TODO: move mel spectrogram to dataloader
             ref_mel_spectrogram = wav2mel(ref_wave)
             ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
-            pipe.save_mel_spectrogram(ref_mel_spectrogram.unsqueeze(0), f"results/degraded_mel_spectrogram_{i}.png")
+
+            pipe.save_mel_spectrogram(ref_mel_spectrogram.unsqueeze(0),
+                                      f"results/{config.name}_input_mel_spectrogram_{i}.png",
+                                      sample_rate=config.data.sample_rate // downsample_scale,
+                                      gt_mel_spectrogram=gt_mel_spectrogram,
+                                      gt_sample_rate=config.data.sample_rate)
 
             ref_wave = ref_wave.to("cuda")
             ref_mel_spectrogram = ref_mel_spectrogram.to("cuda")
@@ -157,7 +211,7 @@ if __name__ == "__main__":
 
             measurement = ref_wave.clone()
         elif args.task == "phase_retrieval":
-            magnitude = Operator.forward(gt_wave).to("cuda")
+            magnitude = Operator.forward(data).to("cuda")
             measurement = magnitude.clone()
         else:
             raise ValueError(f"Unknown task: {args.task}")
@@ -184,21 +238,21 @@ if __name__ == "__main__":
             data=gt_wave.cpu().detach().numpy()[0],
         )
 
-        # save degraded inputs (inpainting)
-        if args.task == "music_inpainting":
+        # save degraded inputs
+        if args.task != "phase_retrieval":
             reconstructed_degraded_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
                 ref_mel_spectrogram.cpu(), ref_phase.cpu())
 
             scipy.io.wavfile.write(
                 f"outputs/{config.name}_input_music_{i}.wav",
-                rate=config.data.sample_rate,
+                rate=config.data.sample_rate // downsample_scale,
                 data=reconstructed_degraded_waveform_with_phase.cpu().detach().numpy()[0],
             )
 
         # save the predicted mel spectrogram
         pred_mel_spectrogram = wav2mel(torch.tensor(audio))
         pred_mel_spectrogram = pred_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
-        pipe.save_mel_spectrogram(pred_mel_spectrogram, f"results/pred_mel_spectrogram_{i}.png")
+        pipe.save_mel_spectrogram(pred_mel_spectrogram, f"results/{config.name}_sample_mel_spectrogram_{i}.png")
 
         # save the best audio sample (index 0) as a .wav file
         # TODO: refactor interface to save the music

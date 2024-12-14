@@ -1,7 +1,7 @@
 name: audioldm2
 repo_id: cvssp/audioldm2
 pipe:
-  num_inference_steps: 200
+  num_inference_steps: 500
   audio_length_in_s: 5
   num_waveforms_per_prompt: 1
 scheduler:

@@ -119,12 +119,8 @@ class MusicInpaintingScheduler(DDIMScheduler):
         variance_noise: Optional[torch.Tensor] = None,
         return_dict: bool = True,
         # args for inverse problem
-        ref_wave: Optional[torch.Tensor] = None,
-        ref_mel_spectrogram: Optional[torch.Tensor] = None,
         measurement: Optional[torch.Tensor] = None,  # ref_wav
-        rec_weight: float = 0.8,
-        mag_weight: float = 0.2,
-        phase_weight: float = 0.2,
+        rec_weight: float = 1.,
         learning_rate: float = 5e-4,
         vae: AutoencoderKL = None,
         vocoder: SpeechT5HifiGan = None,
@@ -175,18 +171,8 @@ class MusicInpaintingScheduler(DDIMScheduler):
 
             difference_mel = ref_mel - pred_mel
             rec_loss = torch.linalg.norm(difference_mel)
-            rec_loss = torch.nan_to_num(rec_loss)
 
-            ref_magnitude, ref_phase = self.waveform_to_spectrogram(measurement)
-            pred_magnitude, pred_phase = self.waveform_to_spectrogram(pred_audio)
-
-            difference_magnitude = ref_magnitude - pred_magnitude
-            difference_phase = ref_phase - pred_phase
-
-            mag_loss = torch.linalg.norm(difference_magnitude)
-            phase_loss = torch.linalg.norm(difference_phase)
-
-            norm = rec_weight * rec_loss + mag_weight * mag_loss + phase_weight * phase_loss
+            norm = rec_weight * rec_loss
 
             norm_grad = torch.autograd.grad(outputs=norm, inputs=sample)[0]
             prev_sample -= learning_rate * norm_grad

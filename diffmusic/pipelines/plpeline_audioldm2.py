@@ -45,6 +45,7 @@ from diffusers import AudioPipelineOutput, DiffusionPipeline
 from diffusers import AudioLDM2ProjectionModel, AudioLDM2UNet2DConditionModel
 
 import torchaudio
+import matplotlib.pyplot as plt
 
 if is_librosa_available():
     import librosa
@@ -872,15 +873,19 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         latents = latents * self.scheduler.init_noise_sigma
         return latents
 
-    def save_mel_spectrogram(self, mel_spectrogram, file_path, sample_rate=16000, hop_length=160, title="Mel Spectrogram"):
-        import matplotlib.pyplot as plt
-
+    def save_mel_spectrogram(self, mel_spectrogram, file_path, sample_rate=16000, hop_length=160,
+                             gt_mel_spectrogram=None, gt_sample_rate=16000, title="Mel Spectrogram"):
         mel_spectrogram = mel_spectrogram.squeeze(0).squeeze(0)
-
         mel_spectrogram = mel_spectrogram.cpu().numpy()
 
         time_axis = torch.arange(mel_spectrogram.shape[0]) * hop_length / sample_rate
         freq_axis = torch.linspace(0, sample_rate / 2, mel_spectrogram.shape[1])
+
+        if gt_mel_spectrogram is not None:
+            gt_mel_spectrogram = gt_mel_spectrogram.squeeze(0).squeeze(0)
+            gt_mel_spectrogram = gt_mel_spectrogram.cpu().numpy()
+            gt_freq_axis = torch.linspace(0, gt_sample_rate / 2, gt_mel_spectrogram.shape[1])
+            y_max = gt_freq_axis[-1]
 
         plt.figure(figsize=(10, 6))
         plt.imshow(mel_spectrogram.T, aspect='auto', origin='lower', cmap='magma',
@@ -890,6 +895,8 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         plt.title(title)
         plt.xlabel("Time (s)")
         plt.ylabel("Frequency (Hz)")
+        if gt_mel_spectrogram is not None:
+            plt.ylim(0, y_max)
         plt.tight_layout()
 
         plt.savefig(file_path, format='png', dpi=300)
@@ -1092,51 +1099,70 @@ class AudioLDM2Pipeline(DiffusionPipeline):
 
         # 7. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-        with self.progress_bar(total=num_inference_steps) as progress_bar:
-            for i, t in enumerate(timesteps):
-                latents = latents.detach().clone()
-                latents.requires_grad = True
+        while True:
+            is_done = True
+            with self.progress_bar(total=num_inference_steps) as progress_bar:
+                for i, t in enumerate(timesteps):
+                    latents = latents.detach().clone()
+                    latents.requires_grad = True
 
-                # expand the latents if we are doing classifier free guidance
-                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                    # expand the latents if we are doing classifier free guidance
+                    latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                # predict the noise residual
-                noise_pred = self.unet(
-                    latent_model_input,
-                    t,
-                    encoder_hidden_states=generated_prompt_embeds,
-                    encoder_hidden_states_1=prompt_embeds,
-                    encoder_attention_mask_1=attention_mask,
-                    return_dict=False,
-                )[0]
+                    # predict the noise residual
+                    noise_pred = self.unet(
+                        latent_model_input,
+                        t,
+                        encoder_hidden_states=generated_prompt_embeds,
+                        encoder_hidden_states_1=prompt_embeds,
+                        encoder_attention_mask_1=attention_mask,
+                        return_dict=False,
+                    )[0]
 
-                # perform guidance
-                if do_classifier_free_guidance:
-                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                    # perform guidance
+                    if do_classifier_free_guidance:
+                        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-                # compute the previous noisy sample x_t -> x_t-1
-                out, distance = self.scheduler.step(
-                    noise_pred,
-                    t,
-                    latents,
-                    measurement=measurement,
-                    original_waveform_length=original_waveform_length,
-                    vae=self.vae,
-                    vocoder=self.vocoder,
-                    **extra_step_kwargs
-                )
+                    # compute the previous noisy sample x_t -> x_t-1
+                    out, distance = self.scheduler.step(
+                        noise_pred,
+                        t,
+                        latents,
+                        measurement=measurement,
+                        original_waveform_length=original_waveform_length,
+                        vae=self.vae,
+                        vocoder=self.vocoder,
+                        **extra_step_kwargs
+                    )
 
-                latents = out.prev_sample.detach()
+                    # Check if distance is nan
+                    if torch.isnan(distance):
+                        logger.warning(f"Detected nan in distance at step {i}. Reinitializing latents and restarting.")
+                        latents = self.prepare_latents(
+                            batch_size * num_waveforms_per_prompt,
+                            num_channels_latents,
+                            height,
+                            prompt_embeds.dtype,
+                            device,
+                            generator,
+                            latents=None,  # Reset latents
+                        )
+                        is_done = False
+                        break  # Restart the denoising loop
 
-                # call the callback, if provided
-                if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-                    progress_bar.set_description("distance: {:.6f}".format(distance.item()))
-                    progress_bar.update()
-                    if callback is not None and i % callback_steps == 0:
-                        step_idx = i // getattr(self.scheduler, "order", 1)
-                        callback(step_idx, t, latents)
+                    latents = out.prev_sample.detach()
+
+                    # call the callback, if provided
+                    if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                        progress_bar.set_description("distance: {:.6f}".format(distance.item()))
+                        progress_bar.update()
+                        if callback is not None and i % callback_steps == 0:
+                            step_idx = i // getattr(self.scheduler, "order", 1)
+                            callback(step_idx, t, latents)
+                if is_done:
+                    break
 
         self.maybe_free_model_hooks()
 
@@ -1149,17 +1175,17 @@ class AudioLDM2Pipeline(DiffusionPipeline):
 
         # mel_spectrogram to waveform with SpeechT5HifiGan
         audio = self.mel_spectrogram_to_waveform(mel_spectrogram)
-        audio = audio[:, :original_waveform_length]
+        audio = audio[0, :original_waveform_length].unsqueeze(0)
 
         # 9. Automatic scoring
-        if num_waveforms_per_prompt > 1 and prompt is not None:
-            audio = self.score_waveforms(
-                text=prompt,
-                audio=audio,
-                num_waveforms_per_prompt=num_waveforms_per_prompt,
-                device=device,
-                dtype=prompt_embeds.dtype,
-            )
+        # if num_waveforms_per_prompt > 1 and prompt is not None:
+        #     audio = self.score_waveforms(
+        #         text=prompt,
+        #         audio=audio,
+        #         num_waveforms_per_prompt=num_waveforms_per_prompt,
+        #         device=device,
+        #         dtype=prompt_embeds.dtype,
+        #     )
 
         if output_type == "np":
             audio = audio.numpy()
