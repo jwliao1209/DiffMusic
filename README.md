@@ -5,7 +5,7 @@ This repository contains the implementation for final project of the CommE5070 D
 
 ## Setup
 To set up the virtual environment and install the required packages, use the following commands:
-```
+```bash
 virtualenv --python=python3.10 diffmusic
 source diffmusic/bin/activate
 pip install -r requirements.txt
@@ -21,22 +21,39 @@ python run.py \
     --negative_prompt <Negative text prompt>
 ```
 
-## Generating Music for inverse problems
-For music inpainting, you can run the command:
+## Generating Music for Inverse Problems
+
+To address an inverse problem, you can use the following command:
+
+```bash
+python run.py \
+    --task <Inverse Problem Task> \
+    --config_path <Path to Model Configuration> \
+    --prompt ""
 ```
+
+### Available Inverse Problem Tasks
+The following tasks can be specified with the `--task` option:
+- `music_inpainting`
+- `phase_retrieval`
+- `super_resolution`
+- `dereverberation`
+- `source_separation`
+
+### Available Model Configurations
+Specify the model configuration file with the `--config_path` option:
+- `configs/audioldm2.yaml`
+- `configs/musicldm.yaml`
+
+### Example Command
+To perform music inpainting with a specific configuration:
+```bash
 python run.py \
     --task "music_inpainting" \
     --config_path "configs/audioldm2.yaml" \
     --prompt ""
 ```
 
-For phase retrieval, you can run the command:
-```
-python run.py \
-    --task "phase_retrieval" \
-    --config_path "configs/audioldm2.yaml" \
-    --prompt ""
-```
 
 ## Environment
 We implemented the code on an environment running Ubuntu 22.04.1, utilizing a 12th Generation Intel(R) Core(TM) i7-12700 CPU, along with a single NVIDIA GeForce RTX 4090 GPU equipped with 24 GB of dedicated memory.
