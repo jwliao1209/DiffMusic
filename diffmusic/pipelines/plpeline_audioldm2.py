@@ -928,9 +928,6 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         callback_steps: Optional[int] = 1,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         output_type: Optional[str] = "np",
-        # For inverse problem
-        start_inpainting_s: float = 0.0,
-        end_inpainting_s: float = 0.0,
         measurement: Optional[torch.Tensor] = None,
     ):
         r"""
@@ -1126,7 +1123,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                         noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                     # compute the previous noisy sample x_t -> x_t-1
-                    out, distance = self.scheduler.step(
+                    out = self.scheduler.step(
                         noise_pred,
                         t,
                         latents,
@@ -1138,7 +1135,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                     )
 
                     # Check if distance is nan
-                    if torch.isnan(distance):
+                    if torch.isnan(out.loss):
                         logger.warning(f"Detected nan in distance at step {i}. Reinitializing latents and restarting.")
                         latents = self.prepare_latents(
                             batch_size * num_waveforms_per_prompt,
@@ -1156,7 +1153,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
 
                     # call the callback, if provided
                     if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-                        progress_bar.set_description("distance: {:.6f}".format(distance.item()))
+                        progress_bar.set_description("distance: {:.6f}".format(out.loss.item()))
                         progress_bar.update()
                         if callback is not None and i % callback_steps == 0:
                             step_idx = i // getattr(self.scheduler, "order", 1)

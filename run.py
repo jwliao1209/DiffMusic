@@ -11,23 +11,22 @@ from diffmusic.data.dataloader import get_dataset, get_dataloader
 from diffmusic.pipelines.plpeline_audioldm2 import AudioLDM2Pipeline
 from diffmusic.pipelines.pipeline_musicldm import MusicLDMPipeline
 from diffmusic.pipelines.pipeline_stable_audio import StableAudioPipeline
-from diffmusic.schedulers.scheduling_inpainting import MusicInpaintingScheduler
-from diffmusic.schedulers.scheduling_phase_retrieval import MusicPhaseRetrievalScheduler
-from diffmusic.schedulers.scheduling_super_resolution import MusicSuperResolutionScheduler
-from diffmusic.schedulers.scheduling_dereverberation import MusicDereverberationScheduler
-from diffmusic.schedulers.scheduling_source_separation import MusicSourceSeparationScheduler
-
-from diffmusic.data.operator import (MusicInpaintingOperator,
-                                     MusicPhaseRetrievalOperator,
-                                     MusicSuperResolutionOperator,
-                                     MusicDereverberationOperator,
-                                     MusicSourceSeparationOperator)
+from diffmusic.operators.operator import (
+    MusicInpaintingOperator,
+    MusicPhaseRetrievalOperator,
+    MusicSuperResolutionOperator,
+    MusicDereverberationOperator,
+    MusicSourceSeparationOperator
+)
+from diffmusic.schedulers.scheduling_dps import DPSScheduler
+from diffmusic.schedulers.scheduling_mpgd import MPGDScheduler
 from diffmusic.utils.utils import waveform_to_spectrogram
 
 
 def parse_arguments() -> Namespace:
     parser = ArgumentParser()
     parser.add_argument(
+        "-t",
         "--task",
         type=str,
         default="music_inpainting",
@@ -40,6 +39,17 @@ def parse_arguments() -> Namespace:
         ],
     )
     parser.add_argument(
+        "-s",
+        "--scheduler",
+        type=str,
+        default="dps",
+        choices=[
+            "dps",
+            "mpgd",
+        ],
+    )
+    parser.add_argument(
+        "-c",
         "--config_path",
         type=str,
         default="configs/audioldm2.yaml",
@@ -50,11 +60,13 @@ def parse_arguments() -> Namespace:
         ],
     )
     parser.add_argument(
+        "-p",
         "--prompt",
         type=str,
         default="",
     )
     parser.add_argument(
+        "-np",
         "--negative_prompt",
         type=str,
         default=None,
@@ -82,7 +94,6 @@ if __name__ == "__main__":
 
     match args.task:
         case "music_inpainting":
-            Scheduler = MusicInpaintingScheduler
             start_inpainting_s = config.data.start_inpainting_s - config.data.start_s
             end_inpainting_s = config.data.end_inpainting_s - config.data.start_s
             downsample_scale = 1
@@ -96,7 +107,6 @@ if __name__ == "__main__":
             start_inpainting_s = None
             end_inpainting_s = None
             downsample_scale = 1
-            Scheduler = MusicPhaseRetrievalScheduler
             Operator = MusicPhaseRetrievalOperator(
                 n_fft=config.data.n_fft,
                 hop_length=config.data.hop_length,
@@ -106,7 +116,6 @@ if __name__ == "__main__":
             start_inpainting_s = None
             end_inpainting_s = None
             downsample_scale = 5
-            Scheduler = MusicSuperResolutionScheduler
             Operator = MusicSuperResolutionOperator(
                 sample_rate=config.data.sample_rate,
                 scale=downsample_scale,
@@ -115,22 +124,28 @@ if __name__ == "__main__":
             start_inpainting_s = None
             end_inpainting_s = None
             downsample_scale = 1
-            Scheduler = MusicDereverberationScheduler
             Operator = MusicDereverberationOperator(
                 ir_length=5000,
-                decay_factor=0.99
+                decay_factor=0.99,
             )
         case "source_separation":
             start_inpainting_s = None
             end_inpainting_s = None
             downsample_scale = 1
             config.pipe.num_waveforms_per_prompt = 2
-            Scheduler = MusicSourceSeparationScheduler
             Operator = MusicSourceSeparationOperator(
-                num_mix=2
+                num_mix=2,
             )
         case _:
             raise ValueError(f"Unknown task: {args.task}")
+        
+    match args.scheduler:
+        case "dps":
+            Scheduler = DPSScheduler
+        case "mpgd":
+            Scheduler = MPGDScheduler
+        case _:
+            raise ValueError(f"Unknown scheduler: {args.scheduler}")
 
     # prepare the pipeline
     pipe = Pipeline.from_pretrained(config.repo_id, torch_dtype=torch.float16)
@@ -225,8 +240,6 @@ if __name__ == "__main__":
             prompt=args.prompt,
             negative_prompt=args.negative_prompt,
             generator=generator,
-            start_inpainting_s=start_inpainting_s,
-            end_inpainting_s=end_inpainting_s,
             measurement=measurement,
             **config.pipe,
         ).audios

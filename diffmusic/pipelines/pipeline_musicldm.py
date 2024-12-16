@@ -507,9 +507,6 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
         callback_steps: Optional[int] = 1,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         output_type: Optional[str] = "np",
-        # For inverse problem
-        start_inpainting_s: float = 0.0,
-        end_inpainting_s: float = 0.0,
         measurement: Optional[torch.Tensor] = None,
     ):
         r"""

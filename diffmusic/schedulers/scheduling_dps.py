@@ -1,31 +1,34 @@
+from dataclasses import dataclass
 from typing import Optional, Union, List, Tuple
 
 import numpy as np
 import torch
 from diffusers.configuration_utils import register_to_config
 from diffusers.models import AutoencoderKL
+from diffusers.utils import BaseOutput
 from transformers import SpeechT5HifiGan
+
+from diffmusic.operators.operator import Operator
 from diffusers.schedulers import DDIMScheduler
 from diffusers.schedulers.scheduling_ddim import DDIMSchedulerOutput
-from pydub import AudioSegment
-from tqdm import tqdm
-import torchaudio
-
-from diffmusic.data.operator import MusicPhaseRetrievalOperator
 
 
-def gram_matrix(x):
-    b, c, h, w = x.shape
-    scale = (c * h * w) ** 0.5
-    return torch.einsum("bchw,bdhw->bcd", x / scale, x / scale)
+@dataclass
+class DPSSchedulerOutput(BaseOutput):
+    prev_sample: torch.Tensor
+    pred_original_sample: Optional[torch.Tensor] = None
+    loss: Optional[torch.Tensor] = None
 
 
-class MusicPhaseRetrievalScheduler(DDIMScheduler):
+class DPSScheduler(DDIMScheduler):
+    '''
+    Guided diffusion posterior sampling using gradient-based methods.
+    '''
 
     @register_to_config
     def __init__(
         self,
-        operator: MusicPhaseRetrievalOperator = None,
+        operator: Operator = None,
         num_train_timesteps: int = 1000,
         beta_start: float = 0.0001,
         beta_end: float = 0.02,
@@ -64,59 +67,6 @@ class MusicPhaseRetrievalScheduler(DDIMScheduler):
 
         self.operator = operator
 
-        self.wav2mel = torch.nn.Sequential(
-            torchaudio.transforms.MelSpectrogram(
-                sample_rate=16000,
-                n_fft=1024,
-                hop_length=160,
-                win_length=1024,
-                n_mels=64,
-                power=2.0,
-            ),
-            torchaudio.transforms.AmplitudeToDB(stype="power")
-        ).to("cuda")
-
-        self.mag2mel = torchaudio.transforms.MelScale(
-            n_mels=64,
-            sample_rate=16000,
-            n_stft=1024 // 2 + 1
-        ).to("cuda")
-
-    def magnitude_to_mel_spectrogram(self, magnitude):
-        return self.mag2mel(magnitude)
-
-    def waveform_to_spectrogram(self, waveform, n_fft=1024, hop_length=160, win_length=1024):
-        spectrogram = torch.stft(
-            waveform,
-            n_fft=n_fft,
-            hop_length=hop_length,
-            win_length=win_length,
-            return_complex=True
-        )
-        magnitude, phase = torch.abs(spectrogram), torch.angle(spectrogram)
-        return magnitude, phase
-
-    def mel_spectrogram_to_waveform(self, mel_spectrogram, vocoder):
-        if mel_spectrogram.dim() == 4:
-            mel_spectrogram = mel_spectrogram.squeeze(1)
-        waveform = vocoder(mel_spectrogram)
-        return waveform
-
-    def compute_spectrogram_stats(self, mel_spectrogram, mask):
-        mask = mask.to(torch.float32)
-        constrained_region = mel_spectrogram * mask
-        mean = constrained_region.flatten(-2).sum(dim=-1) / mask.flatten(-2).sum(dim=-1)
-        std = ((constrained_region - mean.unsqueeze(-1)) ** 2).flatten(-2).sum(dim=-1) / mask.flatten(-2).sum(dim=-1)
-        return mean, std
-
-    def style_loss(self, ref_mel_spectrogram, mel_spectrogram, constrained_mask, unconstrained_mask):
-        constrained_mean, constrained_std = self.compute_spectrogram_stats(ref_mel_spectrogram, constrained_mask)
-        unconstrained_mean, unconstrained_std = self.compute_spectrogram_stats(mel_spectrogram, unconstrained_mask)
-
-        loss = torch.nn.functional.mse_loss(unconstrained_mean, constrained_mean) + \
-               torch.nn.functional.mse_loss(unconstrained_std, constrained_std)
-        return loss
-
     def step(
         self,
         model_output: torch.Tensor,
@@ -124,13 +74,11 @@ class MusicPhaseRetrievalScheduler(DDIMScheduler):
         sample: torch.Tensor,
         eta: float = 0.0,
         use_clipped_model_output: bool = False,
-        generator=None,
+        generator: Optional[torch.Generator] = None,
         variance_noise: Optional[torch.Tensor] = None,
         return_dict: bool = True,
-        # args for inverse problem
-        measurement: Optional[torch.Tensor] = None,  # magnitude
-        rec_weight: float = 1.,
-        learning_rate: float = 8e-4,
+        measurement: Optional[torch.Tensor] = None,  # ref_wav
+        learning_rate: float = 5e-4,
         vae: AutoencoderKL = None,
         vocoder: SpeechT5HifiGan = None,
         original_waveform_length: int = 0,
@@ -158,37 +106,24 @@ class MusicPhaseRetrievalScheduler(DDIMScheduler):
             noise_pred = (sample - (alpha_prod_t ** 0.5) * pred_original_sample) / (beta_prod_t ** 0.5)
             prev_sample = (alpha_prod_t_prev ** 0.5) * pred_original_sample + (beta_prod_t_prev ** 0.5) * noise_pred
 
-            # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-
-            # Guided diffusion posterior sampling using gradient-based methods
-
-            # # # Supervise on mel_spectrogram # # #
+            # Supervise on mel_spectrogram
             pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample
             pred_mel_spectrogram = vae.decode(pred_original_sample).sample
 
-            pred_audio = self.mel_spectrogram_to_waveform(pred_mel_spectrogram, vocoder)
+            pred_audio = self.operator.inverse_transform(pred_mel_spectrogram, vocoder)
             pred_audio = pred_audio[:, :original_waveform_length]
 
-            # Phase Retrieval
-            pred_magnitude = self.operator.forward(pred_audio)
-
-            ref_mel = self.magnitude_to_mel_spectrogram(measurement)
-            pred_mel = self.magnitude_to_mel_spectrogram(pred_magnitude.float())
-
-            ref_mel = torch.clamp(ref_mel, min=-80, max=80)
-            pred_mel = torch.clamp(pred_mel, min=-80, max=80)
+            pred_audio = self.operator.forward(pred_audio)
+            ref_mel = self.operator.transform(measurement)
+            pred_mel = self.operator.transform(pred_audio)
 
             difference_mel = ref_mel - pred_mel
             rec_loss = torch.linalg.norm(difference_mel)
-
-            norm = rec_weight * rec_loss
-
-            norm_grad = torch.autograd.grad(outputs=norm, inputs=sample)[0]
+            norm_grad = torch.autograd.grad(outputs=rec_loss, inputs=sample)[0]
             prev_sample -= learning_rate * norm_grad
 
-            # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-
-        return DDIMSchedulerOutput(
+        return DPSSchedulerOutput(
             prev_sample=prev_sample.detach(),
             pred_original_sample=pred_original_sample,
-        ), norm
+            loss=rec_loss,
+        )

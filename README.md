@@ -12,22 +12,14 @@ pip install -r requirements.txt
 ```
 
 
-## Generating Music
-To generate the music, you can run the command:
-```
-python run.py \
-    --config_path <Path for config>
-    --prompt <Text prompt>
-    --negative_prompt <Negative text prompt>
-```
-
 ## Generating Music for Inverse Problems
 
 To address an inverse problem, you can use the following command:
 
 ```bash
 python run.py \
-    --task <Inverse Problem Task> \
+    --task <Inverse Problem Task: {music_inpainting, phase_retrieval, super_resolution, dereverberation, source_separation}> \
+    --scheduler <Sampling Scheduler: dps, mpgd> \
     --config_path <Path to Model Configuration> \
     --prompt ""
 ```
