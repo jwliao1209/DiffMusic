@@ -1131,7 +1131,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                         original_waveform_length=original_waveform_length,
                         vae=self.vae,
                         vocoder=self.vocoder,
-                        **extra_step_kwargs
+                        **extra_step_kwargs,
                     )
 
                     # Check if distance is nan

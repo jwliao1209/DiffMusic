@@ -20,6 +20,7 @@ from diffmusic.operators.operator import (
 )
 from diffmusic.schedulers.scheduling_dps import DPSScheduler
 from diffmusic.schedulers.scheduling_mpgd import MPGDScheduler
+from diffmusic.schedulers.scheduling_dsg import DSGScheduler
 from diffmusic.utils.utils import waveform_to_spectrogram
 
 
@@ -46,6 +47,7 @@ def parse_arguments() -> Namespace:
         choices=[
             "dps",
             "mpgd",
+            "dsg",
         ],
     )
     parser.add_argument(
@@ -142,8 +144,13 @@ if __name__ == "__main__":
     match args.scheduler:
         case "dps":
             Scheduler = DPSScheduler
+            eta = 0.0
         case "mpgd":
             Scheduler = MPGDScheduler
+            eta = 0.0
+        case "dsg":
+            Scheduler = DSGScheduler
+            eta = 1.0
         case _:
             raise ValueError(f"Unknown scheduler: {args.scheduler}")
 
@@ -239,8 +246,9 @@ if __name__ == "__main__":
             latents=None,
             prompt=args.prompt,
             negative_prompt=args.negative_prompt,
-            generator=generator,
             measurement=measurement,
+            eta=eta,
+            generator=generator,
             **config.pipe,
         ).audios
 

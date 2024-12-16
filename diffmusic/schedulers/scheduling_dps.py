@@ -22,7 +22,8 @@ class DPSSchedulerOutput(BaseOutput):
 
 class DPSScheduler(DDIMScheduler):
     '''
-    Guided diffusion posterior sampling using gradient-based methods.
+    Diffusion Posterior Sampling for General Noisy Inverse Problems
+    ref: https://arxiv.org/abs/2209.14687
     '''
 
     @register_to_config
@@ -107,8 +108,9 @@ class DPSScheduler(DDIMScheduler):
             prev_sample = (alpha_prod_t_prev ** 0.5) * pred_original_sample + (beta_prod_t_prev ** 0.5) * noise_pred
 
             # Supervise on mel_spectrogram
-            pred_original_sample = 1 / vae.config.scaling_factor * pred_original_sample
-            pred_mel_spectrogram = vae.decode(pred_original_sample).sample
+            pred_mel_spectrogram = vae.decode(
+                1 / vae.config.scaling_factor * pred_original_sample
+            ).sample
 
             pred_audio = self.operator.inverse_transform(pred_mel_spectrogram, vocoder)
             pred_audio = pred_audio[:, :original_waveform_length]
