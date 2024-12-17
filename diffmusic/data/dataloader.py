@@ -4,6 +4,7 @@ from typing import Callable, Optional
 import torchaudio
 import torchaudio.transforms as T
 from torch.utils.data import DataLoader, Dataset
+import os
 
 
 __DATASET__ = {}
@@ -82,7 +83,7 @@ class WAVDataset(Dataset):
         wave = wave[0]
         gt_wave = wave[int(self.start_s * self.sample_rate): int(self.end_s * self.sample_rate)]
 
-        return gt_wave
+        return gt_wave, os.path.basename(fpath)
 
 
 @register_dataset(name='source_separation')
@@ -136,5 +137,5 @@ class SourceSeparationDataset(Dataset):
         gt_wave1 = wave1[int(self.start_s * self.sample_rate): int(self.end_s * self.sample_rate)]
         gt_wave2 = wave2[int(self.start_s * self.sample_rate): int(self.end_s * self.sample_rate)]
 
-        return [gt_wave1, gt_wave2]
+        return [gt_wave1, gt_wave2], os.path.basename(fpath1)
 

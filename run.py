@@ -82,8 +82,11 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model_name = "audioldm2" if "audioldm2" in args.config_path else "musicldm"
-    os.makedirs(f"outputs/{model_name}/{args.scheduler}/{args.task}", exist_ok=True)
-    os.makedirs(f"results/{model_name}/{args.scheduler}/{args.task}", exist_ok=True)
+    out_path_wav = f"outputs_wav/{model_name}/{args.scheduler}/{args.task}"
+    out_path_mel = f"outputs_mel/{model_name}/{args.scheduler}/{args.task}"
+    for img_dir in ['input', 'recon', 'label']:
+        os.makedirs(os.path.join(out_path_wav, img_dir), exist_ok=True)
+        os.makedirs(os.path.join(out_path_mel, img_dir), exist_ok=True)
 
     match config.name:
         case "audioldm2":
@@ -201,7 +204,9 @@ if __name__ == "__main__":
     print('Number of samples: ', len(loader))
 
     # run the generation
-    for i, data in enumerate(loader, start=1):
+    for i, (data, file_name) in enumerate(loader, start=1):
+        file_name = file_name[0]
+        
         if args.task == "source_separation":
             gt_wave, other_wave = data
         else:
@@ -209,7 +214,7 @@ if __name__ == "__main__":
 
         gt_mel_spectrogram = wav2mel(gt_wave)
         gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1).unsqueeze(0)
-        pipe.save_mel_spectrogram(gt_mel_spectrogram, f"results/{model_name}/{args.scheduler}/{args.task}/{config.name}_gt_mel_spectrogram_{i}.png")
+        pipe.save_mel_spectrogram(gt_mel_spectrogram, os.path.join(out_path_mel, 'label', file_name))
 
         if args.task != "phase_retrieval":
             ref_wave = Operator.forward(data)
@@ -219,7 +224,7 @@ if __name__ == "__main__":
             ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
 
             pipe.save_mel_spectrogram(ref_mel_spectrogram.unsqueeze(0),
-                                      f"results/{model_name}/{args.scheduler}/{args.task}/{config.name}_input_mel_spectrogram_{i}.png",
+                                      os.path.join(out_path_mel, 'input', file_name),
                                       sample_rate=config.data.sample_rate // downsample_scale,
                                       gt_mel_spectrogram=gt_mel_spectrogram,
                                       gt_sample_rate=config.data.sample_rate)
@@ -255,7 +260,7 @@ if __name__ == "__main__":
 
         # save inputs
         scipy.io.wavfile.write(
-            f"outputs/{model_name}/{args.scheduler}/{args.task}/{config.name}_gt_music_{i}.wav",
+            os.path.join(out_path_wav, 'label', file_name),
             rate=config.data.sample_rate,
             data=gt_wave.cpu().detach().numpy()[0],
         )
@@ -266,7 +271,7 @@ if __name__ == "__main__":
                 ref_mel_spectrogram.cpu(), ref_phase.cpu())
 
             scipy.io.wavfile.write(
-                f"outputs/{model_name}/{args.scheduler}/{args.task}/{config.name}_input_music_{i}.wav",
+                os.path.join(out_path_wav, 'input', file_name),
                 rate=config.data.sample_rate // downsample_scale,
                 data=reconstructed_degraded_waveform_with_phase.cpu().detach().numpy()[0],
             )
@@ -274,22 +279,21 @@ if __name__ == "__main__":
         # save the predicted mel spectrogram
         pred_mel_spectrogram = wav2mel(torch.tensor(audio))
         pred_mel_spectrogram = pred_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
-        pipe.save_mel_spectrogram(pred_mel_spectrogram, f"results/{model_name}/{args.scheduler}/{args.task}/{config.name}_sample_mel_spectrogram_{i}.png")
+        pipe.save_mel_spectrogram(pred_mel_spectrogram, os.path.join(out_path_mel, 'recon', file_name))
 
         # save the best audio sample (index 0) as a .wav file
         # TODO: refactor interface to save the music
-        save_path = f"outputs/{model_name}/{args.scheduler}/{args.task}/{config.name}_sample_music_{i}.wav"
         if config.name in ["audioldm2", "musicldm"]:
             # save outputs
             scipy.io.wavfile.write(
-                save_path,
+                os.path.join(out_path_wav, 'recon', file_name),
                 rate=config.data.sample_rate,
                 data=audio[0],
             )
 
         elif config.name == "stable_audio":
             sf.write(
-                save_path,
+                os.path.join(out_path_wav, 'recon', file_name),
                 audio[0].T.float().cpu().numpy(),
                 pipe.vae.sampling_rate
             )
