@@ -77,12 +77,12 @@ def parse_arguments() -> Namespace:
 
 
 if __name__ == "__main__":
-    os.makedirs("outputs", exist_ok=True)
-    os.makedirs("results", exist_ok=True)
-
     args = parse_arguments()
     config = OmegaConf.load(args.config_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    os.makedirs(f"outputs/{args.scheduler}/{args.task}", exist_ok=True)
+    os.makedirs(f"results/{args.scheduler}/{args.task}", exist_ok=True)
 
     match config.name:
         case "audioldm2":
