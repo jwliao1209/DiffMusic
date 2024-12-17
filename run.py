@@ -50,7 +50,7 @@ def parse_arguments() -> Namespace:
         "-s",
         "--scheduler",
         type=str,
-        default="dps",
+        default=DPS,
         choices=[
             DPS,
             MPGD,
@@ -65,7 +65,7 @@ def parse_arguments() -> Namespace:
         choices=[
             "configs/audioldm2.yaml",
             "configs/musicldm.yaml",
-            "configs/stable_audio.yaml",
+            # "configs/stable_audio.yaml",
         ],
     )
     parser.add_argument(

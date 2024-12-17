@@ -12,6 +12,13 @@ pip install -r requirements.txt
 ```
 
 
+## Data Preparation
+To download the dataset, run the following script:
+```
+bash scripts/download_data.sh
+```
+
+
 ## Generating Music for Inverse Problems
 
 To address an inverse problem, you can use the following command:

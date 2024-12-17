@@ -22,7 +22,7 @@ scheduler:
   rescale_betas_zero_snr: False
 data:
   name: wav
-  root: ./data/sampled_wav_files/
+  root: ./data
   sample_rate: 16000
   n_fft: 1024
   hop_length: 160
