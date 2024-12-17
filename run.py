@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from argparse import ArgumentParser, Namespace
 
 import scipy
@@ -13,15 +14,21 @@ from diffmusic.pipelines.pipeline_musicldm import MusicLDMPipeline
 from diffmusic.pipelines.pipeline_stable_audio import StableAudioPipeline
 from diffmusic.operators.operator import (
     MusicInpaintingOperator,
-    MusicPhaseRetrievalOperator,
-    MusicSuperResolutionOperator,
+    PhaseRetrievalOperator,
+    SuperResolutionOperator,
     MusicDereverberationOperator,
-    MusicSourceSeparationOperator
+    SourceSeparationOperator
 )
 from diffmusic.schedulers.scheduling_dps import DPSScheduler
 from diffmusic.schedulers.scheduling_mpgd import MPGDScheduler
 from diffmusic.schedulers.scheduling_dsg import DSGScheduler
 from diffmusic.utils.utils import waveform_to_spectrogram
+from diffmusic.constants import (
+    AUDIOLDM2, MUSICLDM,
+    MUSIC_INPAINTING, SUPER_RESOLUTION,
+    PHASE_RETREVAL, SOURCE_SEPARATION, MUSIC_DEREVERBERATION,
+    DPS, MPGD, DSG,
+)
 
 
 def parse_arguments() -> Namespace:
@@ -32,11 +39,11 @@ def parse_arguments() -> Namespace:
         type=str,
         default="music_inpainting",
         choices=[
-            "music_inpainting",
-            "phase_retrieval",
-            "super_resolution",
-            "dereverberation",
-            "source_separation"
+            MUSIC_INPAINTING,
+            SUPER_RESOLUTION,
+            PHASE_RETREVAL,
+            SOURCE_SEPARATION,
+            MUSIC_DEREVERBERATION,
         ],
     )
     parser.add_argument(
@@ -45,9 +52,9 @@ def parse_arguments() -> Namespace:
         type=str,
         default="dps",
         choices=[
-            "dps",
-            "mpgd",
-            "dsg",
+            DPS,
+            MPGD,
+            DSG,
         ],
     )
     parser.add_argument(
@@ -81,20 +88,17 @@ if __name__ == "__main__":
     config = OmegaConf.load(args.config_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model_name = "audioldm2" if "audioldm2" in args.config_path else "musicldm"
-    out_path_wav = f"outputs_wav/{model_name}/{args.scheduler}/{args.task}"
-    out_path_mel = f"outputs_mel/{model_name}/{args.scheduler}/{args.task}"
-    for img_dir in ['input', 'recon', 'label']:
-        os.makedirs(os.path.join(out_path_wav, img_dir), exist_ok=True)
-        os.makedirs(os.path.join(out_path_mel, img_dir), exist_ok=True)
+    output_dir = Path("outputs", config.name, args.scheduler, args.task)
+    for d in ["wav_input", "wav_recon", "wav_label", "mel_input", "mel_recon", "mel_label"]:
+        os.makedirs(Path(output_dir, d), exist_ok=True)
 
     match config.name:
         case "audioldm2":
             Pipeline = AudioLDM2Pipeline
-        case "stable_audio":
-            Pipeline = StableAudioPipeline
         case "musicldm":
             Pipeline = MusicLDMPipeline
+        # case "stable_audio":
+        #     Pipeline = StableAudioPipeline
         case _:
             raise ValueError(f"Unknown pipeline name: {config.name}")
 
@@ -109,38 +113,38 @@ if __name__ == "__main__":
                 start_inpainting_s=start_inpainting_s,
                 end_inpainting_s=end_inpainting_s,
             )
-        case "phase_retrieval":
-            start_inpainting_s = None
-            end_inpainting_s = None
-            downsample_scale = 1
-            Operator = MusicPhaseRetrievalOperator(
-                n_fft=config.data.n_fft,
-                hop_length=config.data.hop_length,
-                win_length=config.data.win_length,
-            )
         case "super_resolution":
             start_inpainting_s = None
             end_inpainting_s = None
             downsample_scale = 5
-            Operator = MusicSuperResolutionOperator(
+            Operator = SuperResolutionOperator(
                 sample_rate=config.data.sample_rate,
                 scale=downsample_scale,
             )
-        case "dereverberation":
+        case "phase_retrieval":
             start_inpainting_s = None
             end_inpainting_s = None
             downsample_scale = 1
-            Operator = MusicDereverberationOperator(
-                ir_length=5000,
-                decay_factor=0.99,
+            Operator = PhaseRetrievalOperator(
+                n_fft=config.data.n_fft,
+                hop_length=config.data.hop_length,
+                win_length=config.data.win_length,
             )
         case "source_separation":
             start_inpainting_s = None
             end_inpainting_s = None
             downsample_scale = 1
             config.pipe.num_waveforms_per_prompt = 2
-            Operator = MusicSourceSeparationOperator(
+            Operator = SourceSeparationOperator(
                 num_mix=2,
+            )
+        case "music_dereverberation":
+            start_inpainting_s = None
+            end_inpainting_s = None
+            downsample_scale = 1
+            Operator = MusicDereverberationOperator(
+                ir_length=5000,
+                decay_factor=0.99,
             )
         case _:
             raise ValueError(f"Unknown task: {args.task}")
@@ -161,10 +165,10 @@ if __name__ == "__main__":
     # prepare the pipeline
     pipe = Pipeline.from_pretrained(config.repo_id, torch_dtype=torch.float16)
     pipe.scheduler = Scheduler(operator=Operator, **config.scheduler)
-    pipe = pipe.to("cuda")
+    pipe = pipe.to(device)
 
     # set the seed for generator
-    generator = torch.Generator("cuda").manual_seed(0)
+    generator = torch.Generator(device).manual_seed(0)
 
     # load wav files
     wav2mel = torch.nn.Sequential(
@@ -179,9 +183,9 @@ if __name__ == "__main__":
         torchaudio.transforms.AmplitudeToDB(stype="power")
     )
 
-    if args.task == "source_separation":
+    if args.task == SOURCE_SEPARATION:
         dataset = get_dataset(
-            name="source_separation",
+            name=SOURCE_SEPARATION,
             root=config.data.root,
             sample_rate=config.data.sample_rate,
             audio_length_in_s=config.pipe.audio_length_in_s,
@@ -206,40 +210,45 @@ if __name__ == "__main__":
     # run the generation
     for i, (data, file_name) in enumerate(loader, start=1):
         file_name = file_name[0]
-        
-        if args.task == "source_separation":
+
+        if args.task == SOURCE_SEPARATION:
             gt_wave, other_wave = data
         else:
             gt_wave, other_wave = data, None
 
         gt_mel_spectrogram = wav2mel(gt_wave)
         gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1).unsqueeze(0)
-        pipe.save_mel_spectrogram(gt_mel_spectrogram, os.path.join(out_path_mel, 'label', file_name))
+        pipe.save_mel_spectrogram(
+            gt_mel_spectrogram,
+            Path(output_dir, 'mel_label', file_name.replace('.wav', '.png')),
+        )
 
-        if args.task != "phase_retrieval":
+        if args.task != PHASE_RETREVAL:
             ref_wave = Operator.forward(data)
 
             # TODO: move mel spectrogram to dataloader
             ref_mel_spectrogram = wav2mel(ref_wave)
             ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
 
-            pipe.save_mel_spectrogram(ref_mel_spectrogram.unsqueeze(0),
-                                      os.path.join(out_path_mel, 'input', file_name),
-                                      sample_rate=config.data.sample_rate // downsample_scale,
-                                      gt_mel_spectrogram=gt_mel_spectrogram,
-                                      gt_sample_rate=config.data.sample_rate)
+            pipe.save_mel_spectrogram(
+                ref_mel_spectrogram.unsqueeze(0),
+                Path(output_dir, 'mel_input', file_name.replace('.wav', '.png')),
+                sample_rate=config.data.sample_rate // downsample_scale,
+                gt_mel_spectrogram=gt_mel_spectrogram,
+                gt_sample_rate=config.data.sample_rate,
+            )
 
-            ref_wave = ref_wave.to("cuda")
-            ref_mel_spectrogram = ref_mel_spectrogram.to("cuda")
+            ref_wave = ref_wave.to(device)
+            ref_mel_spectrogram = ref_mel_spectrogram.to(device)
 
             _, ref_phase = waveform_to_spectrogram(waveform=ref_wave)
-            ref_phase = ref_phase[:, :, : int(config.pipe.audio_length_in_s * 100)].to("cuda")
+            ref_phase = ref_phase[:, :, : int(config.pipe.audio_length_in_s * 100)].to(device)
 
             ref_mel_spectrogram = ref_mel_spectrogram.unsqueeze(0)
 
             measurement = ref_wave.clone()
-        elif args.task == "phase_retrieval":
-            magnitude = Operator.forward(data).to("cuda")
+        elif args.task == PHASE_RETREVAL:
+            magnitude = Operator.forward(data).to(device)
             measurement = magnitude.clone()
         else:
             raise ValueError(f"Unknown task: {args.task}")
@@ -260,18 +269,19 @@ if __name__ == "__main__":
 
         # save inputs
         scipy.io.wavfile.write(
-            os.path.join(out_path_wav, 'label', file_name),
+            Path(output_dir, 'wav_label', file_name),
             rate=config.data.sample_rate,
             data=gt_wave.cpu().detach().numpy()[0],
         )
 
         # save degraded inputs
-        if args.task != "phase_retrieval":
+        if args.task != PHASE_RETREVAL:
             reconstructed_degraded_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
-                ref_mel_spectrogram.cpu(), ref_phase.cpu())
+                ref_mel_spectrogram.cpu(), ref_phase.cpu(),
+            )
 
             scipy.io.wavfile.write(
-                os.path.join(out_path_wav, 'input', file_name),
+                Path(output_dir, 'wav_input', file_name),
                 rate=config.data.sample_rate // downsample_scale,
                 data=reconstructed_degraded_waveform_with_phase.cpu().detach().numpy()[0],
             )
@@ -279,21 +289,24 @@ if __name__ == "__main__":
         # save the predicted mel spectrogram
         pred_mel_spectrogram = wav2mel(torch.tensor(audio))
         pred_mel_spectrogram = pred_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
-        pipe.save_mel_spectrogram(pred_mel_spectrogram, os.path.join(out_path_mel, 'recon', file_name))
+        pipe.save_mel_spectrogram(
+            pred_mel_spectrogram,
+            Path(output_dir, 'mel_recon', file_name.replace('.wav', '.png')),
+        )
 
         # save the best audio sample (index 0) as a .wav file
         # TODO: refactor interface to save the music
-        if config.name in ["audioldm2", "musicldm"]:
+        if config.name in [AUDIOLDM2, MUSICLDM]:
             # save outputs
             scipy.io.wavfile.write(
-                os.path.join(out_path_wav, 'recon', file_name),
+                Path(output_dir, 'wav_recon', file_name),
                 rate=config.data.sample_rate,
                 data=audio[0],
             )
 
-        elif config.name == "stable_audio":
-            sf.write(
-                os.path.join(out_path_wav, 'recon', file_name),
-                audio[0].T.float().cpu().numpy(),
-                pipe.vae.sampling_rate
-            )
+        # elif config.name == "stable_audio":
+        #     sf.write(
+        #         Path(output_dir, 'wav_recon', file_name),
+        #         audio[0].T.float().cpu().numpy(),
+        #         pipe.vae.sampling_rate,
+        #     )

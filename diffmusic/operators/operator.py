@@ -60,7 +60,7 @@ class MusicInpaintingOperator(Operator):
         return data
 
 
-class MusicPhaseRetrievalOperator(Operator):
+class PhaseRetrievalOperator(Operator):
     """
     This operator returns amplitude only.
     """
@@ -99,7 +99,7 @@ class MusicPhaseRetrievalOperator(Operator):
         return data
 
 
-class MusicSuperResolutionOperator(Operator):
+class SuperResolutionOperator(Operator):
     """
     This operator returns downsample music.
     """
@@ -182,7 +182,7 @@ class MusicDereverberationOperator(Operator):
         return data
 
 
-class MusicSourceSeparationOperator(Operator):
+class SourceSeparationOperator(Operator):
     """
     This operator returns a mix of music.
     """
