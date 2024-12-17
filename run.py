@@ -9,9 +9,7 @@ import soundfile as sf
 from omegaconf import OmegaConf
 
 from diffmusic.data.dataloader import get_dataset, get_dataloader
-from diffmusic.pipelines.plpeline_audioldm2 import AudioLDM2Pipeline
-from diffmusic.pipelines.pipeline_musicldm import MusicLDMPipeline
-from diffmusic.pipelines.pipeline_stable_audio import StableAudioPipeline
+from diffmusic.pipelines import get_pipeline
 from diffmusic.operators.operator import (
     MusicInpaintingOperator,
     PhaseRetrievalOperator,
@@ -22,7 +20,7 @@ from diffmusic.operators.operator import (
 from diffmusic.schedulers.scheduling_dps import DPSScheduler
 from diffmusic.schedulers.scheduling_mpgd import MPGDScheduler
 from diffmusic.schedulers.scheduling_dsg import DSGScheduler
-from diffmusic.utils.utils import waveform_to_spectrogram
+from diffmusic.utils import waveform_to_spectrogram
 from diffmusic.constants import (
     AUDIOLDM2, MUSICLDM,
     MUSIC_INPAINTING, SUPER_RESOLUTION,
@@ -92,16 +90,6 @@ if __name__ == "__main__":
     for d in ["wav_input", "wav_recon", "wav_label", "mel_input", "mel_recon", "mel_label"]:
         os.makedirs(Path(output_dir, d), exist_ok=True)
 
-    match config.name:
-        case "audioldm2":
-            Pipeline = AudioLDM2Pipeline
-        case "musicldm":
-            Pipeline = MusicLDMPipeline
-        # case "stable_audio":
-        #     Pipeline = StableAudioPipeline
-        case _:
-            raise ValueError(f"Unknown pipeline name: {config.name}")
-
     match args.task:
         case "music_inpainting":
             start_inpainting_s = config.data.start_inpainting_s - config.data.start_s
@@ -163,14 +151,14 @@ if __name__ == "__main__":
             raise ValueError(f"Unknown scheduler: {args.scheduler}")
 
     # prepare the pipeline
-    pipe = Pipeline.from_pretrained(config.repo_id, torch_dtype=torch.float16)
+    pipe = get_pipeline(config=config).from_pretrained(config.repo_id, torch_dtype=torch.float16)
     pipe.scheduler = Scheduler(operator=Operator, **config.scheduler)
     pipe = pipe.to(device)
 
     # set the seed for generator
     generator = torch.Generator(device).manual_seed(0)
 
-    # load wav files
+    # prepare the waveform to mel spectrogram transformation
     wav2mel = torch.nn.Sequential(
         torchaudio.transforms.MelSpectrogram(
             sample_rate=config.data.sample_rate,
@@ -183,26 +171,15 @@ if __name__ == "__main__":
         torchaudio.transforms.AmplitudeToDB(stype="power")
     )
 
-    if args.task == SOURCE_SEPARATION:
-        dataset = get_dataset(
-            name=SOURCE_SEPARATION,
-            root=config.data.root,
-            sample_rate=config.data.sample_rate,
-            audio_length_in_s=config.pipe.audio_length_in_s,
-            start_s=config.data.start_s,
-            end_s=config.data.end_s,
-            transforms=None,
-        )
-    else:
-        dataset = get_dataset(
-            name=config.data.name,
-            root=config.data.root,
-            sample_rate=config.data.sample_rate,
-            audio_length_in_s=config.pipe.audio_length_in_s,
-            start_s=config.data.start_s,
-            end_s=config.data.end_s,
-            transforms=None,
-        )
+    dataset = get_dataset(
+        name=SOURCE_SEPARATION if args.task == SOURCE_SEPARATION else config.data.name,
+        root=config.data.root,
+        sample_rate=config.data.sample_rate,
+        audio_length_in_s=config.pipe.audio_length_in_s,
+        start_s=config.data.start_s,
+        end_s=config.data.end_s,
+        transforms=None,
+    )
 
     loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
     print('Number of samples: ', len(loader))

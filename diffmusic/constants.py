@@ -4,8 +4,8 @@ MUSICLDM = "musicldm"
 
 # task
 MUSIC_INPAINTING = "music_inpainting"
-PHASE_RETREVAL =  "phase_retrieval"
 SUPER_RESOLUTION = "super_resolution"
+PHASE_RETREVAL =  "phase_retrieval"
 SOURCE_SEPARATION = "source_separation"
 MUSIC_DEREVERBERATION = "music_dereverberation"
 
