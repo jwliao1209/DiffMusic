@@ -1,7 +1,11 @@
+import os
+from multiprocessing.dummy import Pool as ThreadPool
+
 import numpy as np
 import resampy
 import soundfile as sf
 import torch
+from tqdm import tqdm
 
 
 def waveform_to_spectrogram(waveform, n_fft=1024, hop_length=160, win_length=1024):
@@ -36,3 +40,34 @@ def load_audio_task(fname, sample_rate, channels, dtype="float32"):
         wav_data = resampy.resample(wav_data, sr, sample_rate)
 
     return wav_data
+
+
+def load_audio_files(
+    dir,
+    sample_rate=16000,
+    channels=1,
+    audio_load_worker=8,
+    dtype="float32",
+    verbose=False,
+):
+    task_results = []
+
+    pool = ThreadPool(audio_load_worker)
+    pbar = tqdm(total=len(os.listdir(dir)), disable=(not verbose))
+
+    def update(*a):
+        pbar.update()
+
+    if verbose:
+        print("[Kullback-Leibler Divergence] Loading audio from {}...".format(dir))
+    for fname in os.listdir(dir):
+        res = pool.apply_async(
+            load_audio_task,
+            args=(os.path.join(dir, fname), sample_rate, channels, dtype),
+            callback=update,
+        )
+        task_results.append(res)
+    pool.close()
+    pool.join()
+
+    return [k.get() for k in task_results]

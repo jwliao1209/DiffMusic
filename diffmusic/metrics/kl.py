@@ -1,9 +1,6 @@
 """
-Calculate Frechet Audio Distance betweeen two audio directories.
+Calculate Kullback-Leibler Divergence betweeen two audio directories.
 """
-import os
-from multiprocessing.dummy import Pool as ThreadPool
-
 import numpy as np
 import resampy
 import soundfile as sf
@@ -13,7 +10,7 @@ from torch import nn
 from tqdm import tqdm
 
 
-class FrechetAudioDistance:
+class KullbackLeiblerDivergence:
     def __init__(
         self,
         ckpt_dir=None,
@@ -24,7 +21,7 @@ class FrechetAudioDistance:
         verbose=False,
     ):
         """
-        Initialize FAD
+        Initialize KL
         -- ckpt_dir: folder where the downloaded checkpoints are stored
         -- sample_rate: one between [8000, 16000, 32000, 48000]. depending on the model set the sample rate to use
         -- channels: number of channels in an audio track
@@ -38,7 +35,7 @@ class FrechetAudioDistance:
         self.verbose = verbose
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         if self.verbose:
-            print("[Frechet Audio Distance] Using device: {}".format(self.device))
+            print("[Kullback-Leibler Divergence] Using device: {}".format(self.device))
         if ckpt_dir is not None:
             os.makedirs(ckpt_dir, exist_ok=True)
             torch.hub.set_dir(ckpt_dir)
@@ -81,7 +78,7 @@ class FrechetAudioDistance:
 
                 if self.verbose:
                     print(
-                        "[Frechet Audio Distance] Embedding shape: {}".format(
+                        "[Kullback-Leibler Divergence] Embedding shape: {}".format(
                             embd.shape
                         )
                     )
@@ -94,72 +91,21 @@ class FrechetAudioDistance:
                 
                 embd_lst.append(embd)
         except Exception as e:
-            print("[Frechet Audio Distance] get_embeddings throw an exception: {}".format(str(e)))
+            print("[Kullback-Leibler Divergence] get_embeddings throw an exception: {}".format(str(e)))
 
         return np.concatenate(embd_lst, axis=0)
 
-    def calculate_embd_statistics(self, embd_lst):
-        if isinstance(embd_lst, list):
-            embd_lst = np.array(embd_lst)
-        mu = np.mean(embd_lst, axis=0)
-        sigma = np.cov(embd_lst, rowvar=False)
-        return mu, sigma
-
-    def calculate_frechet_distance(self, mu1, sigma1, mu2, sigma2, eps=1e-6):
-        """
-        Adapted from: https://github.com/mseitzer/pytorch-fid/blob/master/src/pytorch_fid/fid_score.py
-
-        Numpy implementation of the Frechet Distance.
-        The Frechet distance between two multivariate Gaussians X_1 ~ N(mu_1, C_1)
-        and X_2 ~ N(mu_2, C_2) is
-                d^2 = ||mu_1 - mu_2||^2 + Tr(C_1 + C_2 - 2*sqrt(C_1*C_2)).
-        Stable version by Dougal J. Sutherland.
-        Params:
-        -- mu1   : Numpy array containing the activations of a layer of the
-                inception net (like returned by the function "get_predictions")
-                for generated samples.
-        -- mu2   : The sample mean over activations, precalculated on an
-                representative data set.
-        -- sigma1: The covariance matrix over activations for generated samples.
-        -- sigma2: The covariance matrix over activations, precalculated on an
-                representative data set.
-        Returns:
-        --   : The Frechet Distance.
-        """
-
-        mu1 = np.atleast_1d(mu1)
-        mu2 = np.atleast_1d(mu2)
-
-        sigma1 = np.atleast_2d(sigma1)
-        sigma2 = np.atleast_2d(sigma2)
-
-        assert mu1.shape == mu2.shape, \
-            "Training and test mean vectors have different lengths"
-        assert sigma1.shape == sigma2.shape, \
-            "Training and test covariances have different dimensions"
-
-        diff = mu1 - mu2
-
-        # Product might be almost singular
-        covmean, _ = linalg.sqrtm(sigma1.dot(sigma2).astype(complex), disp=False)
-        if not np.isfinite(covmean).all():
-            msg = ("fid calculation produces singular product; "
-                   "adding %s to diagonal of cov estimates") % eps
-            print(msg)
-            offset = np.eye(sigma1.shape[0]) * eps
-            covmean = linalg.sqrtm((sigma1 + offset).dot(sigma2 + offset).astype(complex))
-
-        # Numerical error might give slight imaginary component
-        if np.iscomplexobj(covmean):
-            if not np.allclose(np.diagonal(covmean).imag, 0, atol=1e-3):
-                m = np.max(np.abs(covmean.imag))
-                raise ValueError("Imaginary component {}".format(m))
-            covmean = covmean.real
-
-        tr_covmean = np.trace(covmean)
-
-        return (diff.dot(diff) + np.trace(sigma1)
-                + np.trace(sigma2) - 2 * tr_covmean)
+    def calculate_kl(
+        self,
+        embds_eval,
+        embds_background,
+        eps=1e-6,
+    ):
+        p = torch.tensor(embds_eval).sigmoid()
+        q = torch.tensor(embds_background).sigmoid()
+        return torch.nn.functional.kl_div(
+            (p + eps).log(), q, reduction="sum"
+        ) / len(p)
 
     def score(
         self,
@@ -170,7 +116,7 @@ class FrechetAudioDistance:
         dtype="float32"
     ):
         """
-        Computes the Frechet Audio Distance (FAD) between two directories of audio files.
+        Computes the Kullback-Leibler Divergence (KL) between two directories of audio files.
 
         Parameters:
         - background_dir (str): Path to the directory containing background audio files.
@@ -206,21 +152,16 @@ class FrechetAudioDistance:
 
         # Check if embeddings are empty
         if len(embds_background) == 0:
-            print("[Frechet Audio Distance] background set dir is empty, exiting...")
+            print("[Kullback-Leibler Divergence] background set dir is empty, exiting...")
             return -1
         if len(embds_eval) == 0:
-            print("[Frechet Audio Distance] eval set dir is empty, exiting...")
+            print("[Kullback-Leibler Divergence] eval set dir is empty, exiting...")
             return -1
 
-        # Compute statistics and FAD score
-        mu_background, sigma_background = self.calculate_embd_statistics(embds_background)
-        mu_eval, sigma_eval = self.calculate_embd_statistics(embds_eval)
-
-        fad_score = self.calculate_frechet_distance(
-            mu_background,
-            sigma_background,
-            mu_eval,
-            sigma_eval
+        # Compute KL score
+        kl_score = self.calculate_kl(
+            embds_eval,
+            embds_background,
         )
 
-        return fad_score
+        return float(kl_score)
