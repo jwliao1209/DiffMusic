@@ -66,7 +66,6 @@ if __name__ == "__main__":
         audio_background, 
         audio_eval,
     )
-    
-    print(f"fad_score: {fad_score}")
-    print(f"kl_score: {kl_score}")
-    print(f"lsd_score: {lsd_score}")
+    print(f"lsd_score: {lsd_score:.4f}")
+    print(f"fad_score: {fad_score:.4f}")
+    print(f"kl_score: {kl_score:.4f}")

@@ -22,8 +22,10 @@ tasks=(
 for config in "${configs[@]}"; do
     for scheduler in "${schedulers[@]}"; do
         for task in "${tasks[@]}"; do
+            echo "=================================================="
             echo "Running task: $task with config: $config"
             python run.py -t "$task" -c "$config" -s "$scheduler"
+            echo "=================================================="
         done
     done
 done
