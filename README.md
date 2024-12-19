@@ -1,6 +1,6 @@
 # DiffMusic: A Zero-shot Diffusion-Based Framework for Music Inverse Problem
 
-This repository contains the implementation for final project of the CommE5070 Deep Learning for Music Analysis and Generation course, Fall 2024, at National Taiwan University. For a detailed report, please refer to this slides.
+This repository contains the implementation for final project of the CommE5070 Deep Learning for Music Analysis and Generation course, Fall 2024, at National Taiwan University. For a detailed report, please refer to this [slides](https://docs.google.com/presentation/d/1djOZFM2DMYFEPwKalCmMgZuUplhSQCBZlv7DMsROLuQ/edit?usp=sharing).
 
 
 ## Setup
