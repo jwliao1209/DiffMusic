@@ -2,7 +2,6 @@
 Calculate Frechet Audio Distance betweeen two audio directories.
 """
 import os
-from multiprocessing.dummy import Pool as ThreadPool
 
 import numpy as np
 import resampy

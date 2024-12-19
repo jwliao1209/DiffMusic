@@ -1,6 +1,8 @@
 """
 Calculate Kullback-Leibler Divergence betweeen two audio directories.
 """
+import os
+
 import numpy as np
 import resampy
 import soundfile as sf
@@ -101,10 +103,10 @@ class KullbackLeiblerDivergence:
         embds_background,
         eps=1e-6,
     ):
-        p = torch.tensor(embds_eval).sigmoid()
-        q = torch.tensor(embds_background).sigmoid()
+        p = torch.tensor(embds_eval, dtype=torch.float32).softmax(dim=-1)
+        q = torch.tensor(embds_background, dtype=torch.float32).softmax(dim=-1)
         return torch.nn.functional.kl_div(
-            (p + eps).log(), q, reduction="sum"
+            (p + eps).log(), (q + eps), reduction="sum"
         ) / len(p)
 
     def score(
