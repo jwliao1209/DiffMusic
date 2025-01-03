@@ -6,9 +6,9 @@ models=(
 )
 
 schedulers=(
-    # "dps"
+    "dps"
     "mpgd"
-    # "dsg"
+    "dsg"
 )
 
 tasks=(
