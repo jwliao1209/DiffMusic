@@ -3,13 +3,16 @@ AUDIOLDM2 = "audioldm2"
 MUSICLDM = "musicldm"
 
 # task
+MUSIC_GENERATION = "music_generation"
 MUSIC_INPAINTING = "music_inpainting"
 SUPER_RESOLUTION = "super_resolution"
-PHASE_RETREVAL =  "phase_retrieval"
-SOURCE_SEPARATION = "source_separation"
+PHASE_RETREVAL = "phase_retrieval"
 MUSIC_DEREVERBERATION = "music_dereverberation"
+STYLE_GUIDANCE = "style_guidance"
 
 # scheduler
+DDIM = "ddim"
 DPS = "dps"
 MPGD = "mpgd"
 DSG = "dsg"
+DIFFMUSIC = "diffmusic"

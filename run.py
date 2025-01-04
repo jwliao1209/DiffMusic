@@ -11,22 +11,29 @@ from omegaconf import OmegaConf
 from diffmusic.data.dataloader import get_dataset, get_dataloader
 from diffmusic.pipelines import get_pipeline
 from diffmusic.operators.operator import (
+    IdentityOperator,
     MusicInpaintingOperator,
     PhaseRetrievalOperator,
     SuperResolutionOperator,
     MusicDereverberationOperator,
-    SourceSeparationOperator
+    StyleGuidanceOperator
 )
+
+from diffmusic.schedulers.scheduling_ddim import DDIMScheduler
 from diffmusic.schedulers.scheduling_dps import DPSScheduler
 from diffmusic.schedulers.scheduling_mpgd import MPGDScheduler
 from diffmusic.schedulers.scheduling_dsg import DSGScheduler
+from diffmusic.schedulers.scheduling_diffmusic import DiffMusicScheduler
+
 from diffmusic.utils import waveform_to_spectrogram
 from diffmusic.constants import (
     AUDIOLDM2, MUSICLDM,
-    MUSIC_INPAINTING, SUPER_RESOLUTION,
-    PHASE_RETREVAL, SOURCE_SEPARATION, MUSIC_DEREVERBERATION,
-    DPS, MPGD, DSG,
+    MUSIC_GENERATION, MUSIC_INPAINTING, SUPER_RESOLUTION,
+    PHASE_RETREVAL, MUSIC_DEREVERBERATION, STYLE_GUIDANCE,
+    DDIM, DPS, MPGD, DSG, DIFFMUSIC,
 )
+
+from diffmusic.msclap import CLAP
 
 
 def parse_arguments() -> Namespace:
@@ -37,11 +44,12 @@ def parse_arguments() -> Namespace:
         type=str,
         default="music_inpainting",
         choices=[
+            MUSIC_GENERATION,
             MUSIC_INPAINTING,
             SUPER_RESOLUTION,
             PHASE_RETREVAL,
-            SOURCE_SEPARATION,
             MUSIC_DEREVERBERATION,
+            STYLE_GUIDANCE,
         ],
     )
     parser.add_argument(
@@ -50,9 +58,11 @@ def parse_arguments() -> Namespace:
         type=str,
         default=DPS,
         choices=[
+            DDIM,
             DPS,
             MPGD,
             DSG,
+            DIFFMUSIC,
         ],
     )
     parser.add_argument(
@@ -78,6 +88,13 @@ def parse_arguments() -> Namespace:
         type=str,
         default=None,
     )
+    parser.add_argument(
+        "--transcription",
+        type=str,
+        required=False,
+        default="",
+        help="Transcription for Text-to-Speech",
+    )
     return parser.parse_args()
 
 
@@ -91,6 +108,13 @@ if __name__ == "__main__":
         os.makedirs(Path(output_dir, d), exist_ok=True)
 
     match args.task:
+        case "music_generation":
+            start_inpainting_s = config.data.start_inpainting_s - config.data.start_s
+            end_inpainting_s = config.data.end_inpainting_s - config.data.start_s
+            downsample_scale = 1
+            Operator = IdentityOperator(
+                sample_rate=config.data.sample_rate,
+            )
         case "music_inpainting":
             start_inpainting_s = config.data.start_inpainting_s - config.data.start_s
             end_inpainting_s = config.data.end_inpainting_s - config.data.start_s
@@ -118,14 +142,6 @@ if __name__ == "__main__":
                 hop_length=config.data.hop_length,
                 win_length=config.data.win_length,
             )
-        case "source_separation":
-            start_inpainting_s = None
-            end_inpainting_s = None
-            downsample_scale = 1
-            config.pipe.num_waveforms_per_prompt = 2
-            Operator = SourceSeparationOperator(
-                num_mix=2,
-            )
         case "music_dereverberation":
             start_inpainting_s = None
             end_inpainting_s = None
@@ -134,10 +150,22 @@ if __name__ == "__main__":
                 ir_length=5000,
                 decay_factor=0.99,
             )
+        case "style_guidance":
+            start_inpainting_s = None
+            end_inpainting_s = None
+            downsample_scale = 1
+            # "CLAP_weights_2022.pth", "CLAP_weights_2023.pth"
+            clap_model = CLAP("CLAP_weights/CLAP_weights_2023.pth", version='2023', use_cuda=True)
+            Operator = StyleGuidanceOperator(
+                clap_model=clap_model,
+            )
         case _:
             raise ValueError(f"Unknown task: {args.task}")
-        
+
     match args.scheduler:
+        case "ddim":
+            Scheduler = DDIMScheduler
+            eta = 0.0
         case "dps":
             Scheduler = DPSScheduler
             eta = 0.0
@@ -146,7 +174,10 @@ if __name__ == "__main__":
             eta = 0.0
         case "dsg":
             Scheduler = DSGScheduler
-            eta = 1.0
+            eta = 1.
+        case "diffmusic":
+            Scheduler = DiffMusicScheduler
+            eta = 0.0
         case _:
             raise ValueError(f"Unknown scheduler: {args.scheduler}")
 
@@ -172,7 +203,7 @@ if __name__ == "__main__":
     )
 
     dataset = get_dataset(
-        name=SOURCE_SEPARATION if args.task == SOURCE_SEPARATION else config.data.name,
+        name=config.data.name,
         root=config.data.root,
         sample_rate=config.data.sample_rate,
         audio_length_in_s=config.pipe.audio_length_in_s,
@@ -187,14 +218,11 @@ if __name__ == "__main__":
     # run the generation
     for i, (data, file_name) in enumerate(loader, start=1):
         file_name = file_name[0]
-
-        if args.task == SOURCE_SEPARATION:
-            gt_wave, other_wave = data
-        else:
-            gt_wave, other_wave = data, None
+        gt_wave = data
 
         gt_mel_spectrogram = wav2mel(gt_wave)
-        gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1).unsqueeze(0)
+        gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2,
+                                                                                                         1).unsqueeze(0)
         pipe.save_mel_spectrogram(
             gt_mel_spectrogram,
             Path(output_dir, 'mel_label', file_name.replace('.wav', '.png')),
@@ -253,14 +281,14 @@ if __name__ == "__main__":
 
         # save degraded inputs
         if args.task != PHASE_RETREVAL:
-            reconstructed_degraded_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
-                ref_mel_spectrogram.cpu(), ref_phase.cpu(),
-            )
+            # reconstructed_degraded_waveform_with_phase = pipe.mel_spectrogram_to_waveform_with_phase(
+            #     ref_mel_spectrogram.cpu(), ref_phase.cpu(),
+            # )
 
             scipy.io.wavfile.write(
                 Path(output_dir, 'wav_input', file_name),
                 rate=config.data.sample_rate // downsample_scale,
-                data=reconstructed_degraded_waveform_with_phase.cpu().detach().numpy()[0],
+                data=ref_wave.cpu().detach().numpy()[0],
             )
 
         # save the predicted mel spectrogram

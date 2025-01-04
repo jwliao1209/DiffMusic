@@ -11,6 +11,18 @@ source diffmusic/bin/activate
 pip install -r requirements.txt
 ```
 
+## Download CLAP pretrained weight
+```bash
+mkdir CLAP_weights
+cd CLAP_weights
+
+wget https://huggingface.co/microsoft/msclap/resolve/main/CLAP_weights_2022.pth
+
+wget https://huggingface.co/microsoft/msclap/resolve/main/CLAP_weights_2023.pth
+
+cd ..
+```
+
 
 ## Data Preparation
 To download the dataset, run the following script:
@@ -25,19 +37,28 @@ To address an inverse problem, you can use the following command:
 
 ```bash
 python run.py \
-    --task <Inverse Problem Task: {music_inpainting, phase_retrieval, super_resolution, dereverberation, source_separation}> \
-    --scheduler <Sampling Scheduler: dps, mpgd> \
+    --task <Inverse Problem Task: {music_generation, music_inpainting, phase_retrieval, super_resolution, dereverberation, style_guidance}> \
+    --scheduler <Sampling Scheduler: ddim, dps, mpgd, dsg, diffmusic> \
     --config_path <Path to Model Configuration> \
     --prompt ""
 ```
 
 ### Available Inverse Problem Tasks
 The following tasks can be specified with the `--task` option:
+- `music_generation`
 - `music_inpainting`
 - `phase_retrieval`
 - `super_resolution`
 - `dereverberation`
-- `source_separation`
+- `style_guidance`
+
+### Available Scheduler
+The following tasks can be specified with the `--scheduler` option:
+- `ddim`
+- `dps`
+- `mpgd`
+- `dsg`
+- `diffmusic`
 
 ### Available Model Configurations
 Specify the model configuration file with the `--config_path` option:
@@ -49,8 +70,16 @@ To perform music inpainting with a specific configuration:
 ```bash
 python run.py \
     --task "music_inpainting" \
-    --config_path "configs/audioldm2.yaml" \
+    --config_path "configs/musicldm.yaml" \
     --prompt ""
+```
+
+To perform style guidance with a specific configuration:
+```bash
+python run.py \
+    --task "style_guidance" \
+    --config_path "configs/audioldm2.yaml" \
+    --prompt "A female reporter is singing"
 ```
 
 

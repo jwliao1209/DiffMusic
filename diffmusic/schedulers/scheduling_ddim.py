@@ -14,17 +14,13 @@ from diffusers.schedulers.scheduling_ddim import DDIMSchedulerOutput
 
 
 @dataclass
-class MPGDSchedulerOutput(BaseOutput):
+class DDIMSchedulerOutput(BaseOutput):
     prev_sample: torch.Tensor
     pred_original_sample: Optional[torch.Tensor] = None
     loss: Optional[torch.Tensor] = None
 
 
-class MPGDScheduler(DDIMScheduler):
-    '''
-    Manifold Preserving Guided Diffusion
-    ref: https://arxiv.org/abs/2311.16424
-    '''
+class DDIMScheduler(DDIMScheduler):
 
     @register_to_config
     def __init__(
@@ -78,7 +74,6 @@ class MPGDScheduler(DDIMScheduler):
             variance_noise: Optional[torch.Tensor] = None,
             return_dict: bool = True,
             measurement: Optional[torch.Tensor] = None,  # ref_wav
-            learning_rate: float = 10,
             vae: AutoencoderKL = None,
             vocoder: SpeechT5HifiGan = None,
             original_waveform_length: int = 0,
@@ -101,33 +96,11 @@ class MPGDScheduler(DDIMScheduler):
         alpha_prod_t_prev = self.alphas_cumprod[timesteps_prev] if timesteps_prev >= 0 else self.final_alpha_cumprod
         beta_prod_t_prev = 1 - alpha_prod_t_prev
 
-        with torch.enable_grad():
-            pred_original_sample = pred_original_sample.clone().detach().requires_grad_(True)
-
-            # Supervise on mel_spectrogram
-            pred_mel_spectrogram = vae.decode(
-                1 / vae.config.scaling_factor * pred_original_sample
-            ).sample
-
-            pred_audio = self.operator.inverse_transform(pred_mel_spectrogram, vocoder)
-            pred_audio = pred_audio[:, :original_waveform_length]
-
-            pred_audio = self.operator.forward(pred_audio)
-            ref_mel = self.operator.transform(measurement)
-            pred_mel = self.operator.transform(pred_audio)
-
-            difference_mel = ref_mel - pred_mel
-            rec_loss = torch.linalg.norm(difference_mel)
-            norm_grad = torch.autograd.grad(outputs=rec_loss, inputs=pred_original_sample)[0]
-
-            pred_original_sample = pred_original_sample.detach()
-            pred_original_sample -= learning_rate * norm_grad
-
         noise_pred = (sample - (alpha_prod_t ** 0.5) * pred_original_sample) / (beta_prod_t ** 0.5)
         prev_sample = (alpha_prod_t_prev ** 0.5) * pred_original_sample + (beta_prod_t_prev ** 0.5) * noise_pred
 
-        return MPGDSchedulerOutput(
+        return DDIMSchedulerOutput(
             prev_sample=prev_sample.detach(),
             pred_original_sample=pred_original_sample,
-            loss=rec_loss,
+            loss=torch.tensor([timestep]),
         )

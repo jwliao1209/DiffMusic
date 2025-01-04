@@ -17,6 +17,40 @@ class Operator:
         raise NotImplementedError
 
 
+class IdentityOperator(Operator):
+    """
+    This operator returns original music.
+    """
+
+    def __init__(self, sample_rate):
+        self.wav2mel = torch.nn.Sequential(
+            MelSpectrogram(
+                sample_rate=sample_rate,
+                n_fft=1024,
+                hop_length=160,
+                win_length=1024,
+                n_mels=64,
+                power=2.0,
+            ),
+            AmplitudeToDB(stype="power"),
+        ).to("cuda")
+
+    def transform(self, audio):
+        return torch.clamp(self.wav2mel(audio), min=-80, max=80)
+
+    def inverse_transform(self, mel_spectrogram, vocoder):
+        if mel_spectrogram.dim() == 4:
+            mel_spectrogram = mel_spectrogram.squeeze(1)
+        waveform = vocoder(mel_spectrogram)
+        return waveform
+
+    def forward(self, data, **kwargs):
+        return data
+
+    def transpose(self, data):
+        return data
+
+
 class MusicInpaintingOperator(Operator):
     """
     This operator get pre-defined mask and return masked music.
@@ -45,7 +79,7 @@ class MusicInpaintingOperator(Operator):
         ).to("cuda")
 
     def transform(self, audio):
-        return torch.clamp(self.wav2mel(audio), min=-80, max=80)
+        return self.wav2mel(audio)
 
     def inverse_transform(self, mel_spectrogram, vocoder):
         if mel_spectrogram.dim() == 4:
@@ -182,32 +216,16 @@ class MusicDereverberationOperator(Operator):
         return data
 
 
-class SourceSeparationOperator(Operator):
+class StyleGuidanceOperator(Operator):
     """
-    This operator returns a mix of music.
+    This operator returns the outputs of CLAP.
     """
 
-    def __init__(self, num_mix=2):
-        self.num_mix = num_mix
-
-        self.weight = 1.0 / num_mix
-        self.weight = [round(self.weight, 2) for _ in range(num_mix)]
-        self.weight[-1] = 1.0 - sum(self.weight[:-1])
-        self.weight[-1] = round(self.weight[-1], 2)
-        self.wav2mel = torch.nn.Sequential(
-            MelSpectrogram(
-                sample_rate=16000,
-                n_fft=1024,
-                hop_length=160,
-                win_length=1024,
-                n_mels=64,
-                power=2.0,
-            ),
-            AmplitudeToDB(stype="power"),
-        ).to("cuda")
+    def __init__(self, clap_model):
+        self.clap_model = clap_model
 
     def transform(self, audio):
-        return torch.clamp(self.wav2mel(audio), min=-80, max=80)
+        return self.clap_model.get_gram_matrix(audio.float())
 
     def inverse_transform(self, mel_spectrogram, vocoder):
         if mel_spectrogram.dim() == 4:
@@ -215,11 +233,8 @@ class SourceSeparationOperator(Operator):
         waveform = vocoder(mel_spectrogram)
         return waveform
 
-    def forward(self, data_list, **kwargs):
-        mixed_music = torch.zeros_like(data_list[0]).float()
-        for i in range(self.num_mix):
-            mixed_music += self.weight[i] * data_list[i].float()
-        return mixed_music
+    def forward(self, data, **kwargs):
+        return data
 
     def transpose(self, data):
         return data
