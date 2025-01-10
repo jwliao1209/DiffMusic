@@ -16,7 +16,9 @@ from diffmusic.operators.operator import (
     PhaseRetrievalOperator,
     SuperResolutionOperator,
     MusicDereverberationOperator,
-    StyleGuidanceOperator
+    StyleGuidanceOperator,
+    GaussianNoise,
+    PoissonNoise,
 )
 
 from diffmusic.schedulers.scheduling_ddim import DDIMScheduler
@@ -95,6 +97,19 @@ def parse_arguments() -> Namespace:
         default="",
         help="Transcription for Text-to-Speech",
     )
+    parser.add_argument(
+        "--noise",
+        type=str,
+        required=False,
+        default="gaussian",
+        choices=["gaussian", "poisson"],
+    )
+    parser.add_argument(
+        "--sigma",
+        type=float,
+        required=False,
+        default=0.05,
+    )
     return parser.parse_args()
 
 
@@ -162,6 +177,15 @@ if __name__ == "__main__":
         case _:
             raise ValueError(f"Unknown task: {args.task}")
 
+    match args.noise:
+        case "gaussian":
+            Noiser = GaussianNoise(args.sigma)
+        case "poisson":
+            Noiser = PoissonNoise(args.sigma)
+        case _:
+            raise ValueError(f"Unknown noise: {args.noise}")
+
+
     match args.scheduler:
         case "ddim":
             Scheduler = DDIMScheduler
@@ -221,8 +245,7 @@ if __name__ == "__main__":
         gt_wave = data
 
         gt_mel_spectrogram = wav2mel(gt_wave)
-        gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2,
-                                                                                                         1).unsqueeze(0)
+        gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1).unsqueeze(0)
         pipe.save_mel_spectrogram(
             gt_mel_spectrogram,
             Path(output_dir, 'mel_label', file_name.replace('.wav', '.png')),
@@ -230,6 +253,7 @@ if __name__ == "__main__":
 
         if args.task != PHASE_RETREVAL:
             ref_wave = Operator.forward(data)
+            ref_wave = Noiser(ref_wave)
 
             # TODO: move mel spectrogram to dataloader
             ref_mel_spectrogram = wav2mel(ref_wave)
@@ -254,6 +278,7 @@ if __name__ == "__main__":
             measurement = ref_wave.clone()
         elif args.task == PHASE_RETREVAL:
             magnitude = Operator.forward(data).to(device)
+            magnitude = magnitude(ref_wave)
             measurement = magnitude.clone()
         else:
             raise ValueError(f"Unknown task: {args.task}")
