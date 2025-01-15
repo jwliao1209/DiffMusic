@@ -2,8 +2,8 @@
 
 # Download data
 if [ ! -d "data" ]; then
-    gdown 1DLnQKzREYul0puuTJNdBkiEogf4wBmlt -O data.zip
+    gdown 1rBJxgnUpvsrNePEEPLBzRCEqSzLsSp1m -O data.zip
     unzip -n data.zip
     rm data.zip
-    mv sampled_wav_files data
+    mv moises_inst_subset data
 fi

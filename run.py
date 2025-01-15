@@ -41,6 +41,12 @@ from diffmusic.msclap import CLAP
 def parse_arguments() -> Namespace:
     parser = ArgumentParser()
     parser.add_argument(
+        "--instrument",
+        type=str,
+        default="bass",
+        choices=["bass", "bowed_strings", "drums", "guitar", "percussion", "piano", "wind"],
+    )
+    parser.add_argument(
         "-t",
         "--task",
         type=str,
@@ -52,6 +58,17 @@ def parse_arguments() -> Namespace:
             PHASE_RETREVAL,
             MUSIC_DEREVERBERATION,
             STYLE_GUIDANCE,
+        ],
+    )
+    parser.add_argument(
+        "-m",
+        "--mask_type",
+        type=str,
+        default="box",
+        choices=[
+            "box",
+            "random",
+            "periodic",
         ],
     )
     parser.add_argument(
@@ -82,7 +99,7 @@ def parse_arguments() -> Namespace:
         "-p",
         "--prompt",
         type=str,
-        default="",
+        default=None,
     )
     parser.add_argument(
         "-np",
@@ -122,10 +139,18 @@ if __name__ == "__main__":
     for d in ["wav_input", "wav_recon", "wav_label", "mel_input", "mel_recon", "mel_label"]:
         os.makedirs(Path(output_dir, d), exist_ok=True)
 
+    match args.noise:
+        case "gaussian":
+            Noiser = GaussianNoise(args.sigma)
+        case "poisson":
+            Noiser = PoissonNoise(args.sigma)
+        case _:
+            raise ValueError(f"Unknown noise: {args.noise}")
+
     match args.task:
         case "music_generation":
-            start_inpainting_s = config.data.start_inpainting_s - config.data.start_s
-            end_inpainting_s = config.data.end_inpainting_s - config.data.start_s
+            start_inpainting_s = None
+            end_inpainting_s = None
             downsample_scale = 1
             Operator = IdentityOperator(
                 sample_rate=config.data.sample_rate,
@@ -137,16 +162,25 @@ if __name__ == "__main__":
             Operator = MusicInpaintingOperator(
                 audio_length_in_s=config.pipe.audio_length_in_s,
                 sample_rate=config.data.sample_rate,
+                mask_type=args.mask_type,
+                # for box
                 start_inpainting_s=start_inpainting_s,
                 end_inpainting_s=end_inpainting_s,
+                # for random
+                mask_percentage=0.3,
+                # for periodic
+                interval_s=1,
+                mask_duration_s=0.1,
+                noiser=Noiser,
             )
         case "super_resolution":
             start_inpainting_s = None
             end_inpainting_s = None
-            downsample_scale = 5
+            downsample_scale = 2
             Operator = SuperResolutionOperator(
                 sample_rate=config.data.sample_rate,
                 scale=downsample_scale,
+                noiser=Noiser,
             )
         case "phase_retrieval":
             start_inpainting_s = None
@@ -156,6 +190,7 @@ if __name__ == "__main__":
                 n_fft=config.data.n_fft,
                 hop_length=config.data.hop_length,
                 win_length=config.data.win_length,
+                noiser=Noiser,
             )
         case "music_dereverberation":
             start_inpainting_s = None
@@ -164,6 +199,7 @@ if __name__ == "__main__":
             Operator = MusicDereverberationOperator(
                 ir_length=5000,
                 decay_factor=0.99,
+                noiser=Noiser,
             )
         case "style_guidance":
             start_inpainting_s = None
@@ -177,31 +213,22 @@ if __name__ == "__main__":
         case _:
             raise ValueError(f"Unknown task: {args.task}")
 
-    match args.noise:
-        case "gaussian":
-            Noiser = GaussianNoise(args.sigma)
-        case "poisson":
-            Noiser = PoissonNoise(args.sigma)
-        case _:
-            raise ValueError(f"Unknown noise: {args.noise}")
-
-
     match args.scheduler:
         case "ddim":
             Scheduler = DDIMScheduler
-            eta = 0.0
+            eta = 1.0
         case "dps":
             Scheduler = DPSScheduler
-            eta = 0.0
+            eta = 1.0
         case "mpgd":
             Scheduler = MPGDScheduler
-            eta = 0.0
+            eta = 1.0
         case "dsg":
             Scheduler = DSGScheduler
-            eta = 1.
+            eta = 1.0
         case "diffmusic":
             Scheduler = DiffMusicScheduler
-            eta = 0.0
+            eta = 1.0
         case _:
             raise ValueError(f"Unknown scheduler: {args.scheduler}")
 
@@ -228,7 +255,7 @@ if __name__ == "__main__":
 
     dataset = get_dataset(
         name=config.data.name,
-        root=config.data.root,
+        root=os.path.join(config.data.root, args.instrument),
         sample_rate=config.data.sample_rate,
         audio_length_in_s=config.pipe.audio_length_in_s,
         start_s=config.data.start_s,
@@ -242,18 +269,24 @@ if __name__ == "__main__":
     # run the generation
     for i, (data, file_name) in enumerate(loader, start=1):
         file_name = file_name[0]
+
+        # Check if file already exists
+        recon_path = Path(output_dir, 'wav_recon', file_name)
+        if os.path.exists(recon_path):
+            print("File {} already exists. Skipping.".format(file_name))
+            continue
+
         gt_wave = data
 
         gt_mel_spectrogram = wav2mel(gt_wave)
         gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1).unsqueeze(0)
         pipe.save_mel_spectrogram(
             gt_mel_spectrogram,
-            Path(output_dir, 'mel_label', file_name.replace('.wav', '.png')),
+            Path(output_dir, 'mel_label', file_name).with_suffix('.png'),
         )
 
         if args.task != PHASE_RETREVAL:
             ref_wave = Operator.forward(data)
-            ref_wave = Noiser(ref_wave)
 
             # TODO: move mel spectrogram to dataloader
             ref_mel_spectrogram = wav2mel(ref_wave)
@@ -261,7 +294,7 @@ if __name__ == "__main__":
 
             pipe.save_mel_spectrogram(
                 ref_mel_spectrogram.unsqueeze(0),
-                Path(output_dir, 'mel_input', file_name.replace('.wav', '.png')),
+                Path(output_dir, 'mel_input', file_name).with_suffix('.png'),
                 sample_rate=config.data.sample_rate // downsample_scale,
                 gt_mel_spectrogram=gt_mel_spectrogram,
                 gt_sample_rate=config.data.sample_rate,
@@ -278,7 +311,6 @@ if __name__ == "__main__":
             measurement = ref_wave.clone()
         elif args.task == PHASE_RETREVAL:
             magnitude = Operator.forward(data).to(device)
-            magnitude = magnitude(ref_wave)
             measurement = magnitude.clone()
         else:
             raise ValueError(f"Unknown task: {args.task}")
@@ -321,7 +353,7 @@ if __name__ == "__main__":
         pred_mel_spectrogram = pred_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
         pipe.save_mel_spectrogram(
             pred_mel_spectrogram,
-            Path(output_dir, 'mel_recon', file_name.replace('.wav', '.png')),
+            Path(output_dir, 'mel_recon', file_name).with_suffix('.png'),
         )
 
         # save the best audio sample (index 0) as a .wav file

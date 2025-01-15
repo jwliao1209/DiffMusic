@@ -327,8 +327,8 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.prepare_extra_step_kwargs
     def prepare_extra_step_kwargs(self, generator, eta):
         # prepare extra kwargs for the scheduler step, since not all schedulers have the same signature
-        # eta (Î·) is only used with the DDIMScheduler, it will be ignored for other schedulers.
-        # eta corresponds to Î· in DDIM paper: https://arxiv.org/abs/2010.02502
+        # eta (£b) is only used with the DDIMScheduler, it will be ignored for other schedulers.
+        # eta corresponds to £b in DDIM paper: https://arxiv.org/abs/2010.02502
         # and should be between [0, 1]
 
         accepts_eta = "eta" in set(inspect.signature(self.scheduler.step).parameters.keys())

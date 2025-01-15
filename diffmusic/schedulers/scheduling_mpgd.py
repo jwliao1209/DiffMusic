@@ -78,7 +78,7 @@ class MPGDScheduler(DDIMScheduler):
             variance_noise: Optional[torch.Tensor] = None,
             return_dict: bool = True,
             measurement: Optional[torch.Tensor] = None,  # ref_wav
-            learning_rate: float = 10,
+            learning_rate: float = 1.0,
             vae: AutoencoderKL = None,
             vocoder: SpeechT5HifiGan = None,
             original_waveform_length: int = 0,

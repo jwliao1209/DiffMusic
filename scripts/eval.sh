@@ -6,16 +6,16 @@ models=(
 )
 
 schedulers=(
-    # "dps"
+    "dps"
     "mpgd"
-    # "dsg"
+#    "dsg"
+#    "diffmusic"
 )
 
 tasks=(
     "music_inpainting"
     "super_resolution"
     "phase_retrieval"
-    "source_separation"
     "music_dereverberation"
 )
 

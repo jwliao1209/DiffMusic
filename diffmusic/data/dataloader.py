@@ -1,9 +1,12 @@
 from glob import glob
 from typing import Callable, Optional
 
+import numpy as np
+import torch
 import torchaudio
 import torchaudio.transforms as T
 from torch.utils.data import DataLoader, Dataset
+from pydub import AudioSegment
 import os
 
 
@@ -86,8 +89,8 @@ class WAVDataset(Dataset):
         return gt_wave, os.path.basename(fpath)
 
 
-@register_dataset(name='source_separation')
-class SourceSeparationDataset(Dataset):
+@register_dataset(name='mp3')
+class MP3Dataset(Dataset):
     def __init__(
             self,
             root: str,
@@ -104,38 +107,39 @@ class SourceSeparationDataset(Dataset):
         self.end_s = end_s
         self.transforms = transforms
 
-        self.fpaths = sorted(glob(root + '/**/*.wav', recursive=True))
+        self.fpaths = sorted(glob(root + '/**/*.mp3', recursive=True))
         assert len(self.fpaths) > 0, "File list is empty. Check the root."
 
     def __len__(self):
         return len(self.fpaths)
 
     def __getitem__(self, index: int):
-        fpath1 = self.fpaths[index]
-        fpath2 = self.fpaths[index+1] if index + 1 < len(self.fpaths) else self.fpaths[index-1]
+        fpath = self.fpaths[index]
 
-        wave1, sr1 = torchaudio.load(fpath1)  # wave shape: [channels, time]
-        wave2, sr2 = torchaudio.load(fpath2)  # wave shape: [channels, time]
+        # Load MP3 file using pydub
+        audio = AudioSegment.from_file(fpath, format="mp3")
 
-        wave1 = wave1.mean(dim=0, keepdim=True) if wave1.size(0) > 1 else wave1
-        wave2 = wave2.mean(dim=0, keepdim=True) if wave2.size(0) > 1 else wave2
+        # Resample to the target sample rate if necessary
+        if audio.frame_rate != self.sample_rate:
+            audio = audio.set_frame_rate(self.sample_rate)
 
-        if sr1 != self.sample_rate:
-            resampler = T.Resample(orig_freq=sr1, new_freq=self.sample_rate)
-            wave1 = resampler(wave1)
-        if sr2 != self.sample_rate:
-            resampler = T.Resample(orig_freq=sr2, new_freq=self.sample_rate)
-            wave2 = resampler(wave2)
+        # Convert to mono if necessary
+        if audio.channels > 1:
+            audio = audio.set_channels(1)
 
+        # Convert audio to raw samples (numpy array)
+        samples = np.array(audio.get_array_of_samples()).astype(np.float32)
+
+        # Normalize samples to [-1, 1]
+        samples /= np.iinfo(audio.array_type).max
+
+        # Extract the target segment based on start and end time
+        start_idx = int(self.start_s * self.sample_rate)
+        end_idx = int(self.end_s * self.sample_rate) if self.end_s > 0 else len(samples)
+        gt_wave = samples[start_idx:end_idx]
+
+        # Apply transformations if provided
         if self.transforms is not None:
-            wave1 = self.transforms(wave1)
-            wave2 = self.transforms(wave2)
+            gt_wave = self.transforms(torch.tensor(gt_wave))
 
-        wave1 = wave1[0]
-        wave2 = wave2[0]
-
-        gt_wave1 = wave1[int(self.start_s * self.sample_rate): int(self.end_s * self.sample_rate)]
-        gt_wave2 = wave2[int(self.start_s * self.sample_rate): int(self.end_s * self.sample_rate)]
-
-        return [gt_wave1, gt_wave2], os.path.basename(fpath1)
-
+        return torch.tensor(gt_wave), os.path.basename(fpath)
