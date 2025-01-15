@@ -12,6 +12,8 @@ from diffmusic.operators.operator import Operator
 from diffusers.schedulers import DDIMScheduler
 from diffusers.schedulers.scheduling_ddim import DDIMSchedulerOutput
 
+from ..torch_utils import randn_tensor
+
 
 @dataclass
 class MPGDSchedulerOutput(BaseOutput):
@@ -99,7 +101,9 @@ class MPGDScheduler(DDIMScheduler):
         alpha_prod_t = self.alphas_cumprod[timestep]
         beta_prod_t = 1 - alpha_prod_t
         alpha_prod_t_prev = self.alphas_cumprod[timesteps_prev] if timesteps_prev >= 0 else self.final_alpha_cumprod
-        beta_prod_t_prev = 1 - alpha_prod_t_prev
+
+        variance = self._get_variance(timestep, timesteps_prev)
+        std_dev_t = eta * variance ** 0.5
 
         with torch.enable_grad():
             pred_original_sample = pred_original_sample.clone().detach().requires_grad_(True)
@@ -129,7 +133,23 @@ class MPGDScheduler(DDIMScheduler):
             pred_original_sample -= learning_rate * norm_grad
 
         noise_pred = (sample - (alpha_prod_t ** 0.5) * pred_original_sample) / (beta_prod_t ** 0.5)
-        prev_sample = (alpha_prod_t_prev ** 0.5) * pred_original_sample + (beta_prod_t_prev ** 0.5) * noise_pred
+        pred_sample_direction = ((1 - alpha_prod_t_prev - std_dev_t ** 2) ** 0.5) * noise_pred
+        prev_sample = (alpha_prod_t_prev ** 0.5) * pred_original_sample + pred_sample_direction
+
+        if eta > 0:
+            if variance_noise is not None and generator is not None:
+                raise ValueError(
+                    "Cannot pass both generator and variance_noise. Please make sure that either `generator` or"
+                    " `variance_noise` stays `None`."
+                )
+
+            if variance_noise is None:
+                variance_noise = randn_tensor(
+                    model_output.shape, generator=generator, device=model_output.device, dtype=model_output.dtype
+                )
+            variance = std_dev_t * variance_noise
+
+            prev_sample = prev_sample + variance
 
         return MPGDSchedulerOutput(
             prev_sample=prev_sample.detach(),
