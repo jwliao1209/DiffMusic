@@ -113,11 +113,16 @@ class MPGDScheduler(DDIMScheduler):
             pred_audio = pred_audio[:, :original_waveform_length]
 
             pred_audio = self.operator.forward(pred_audio)
+
+            # with VMC
             ref_mel = self.operator.transform(measurement)
             pred_mel = self.operator.transform(pred_audio)
+            difference = ref_mel - pred_mel
 
-            difference_mel = ref_mel - pred_mel
-            rec_loss = torch.linalg.norm(difference_mel)
+            # without VMC
+            # difference = measurement - pred_audio
+
+            rec_loss = torch.linalg.norm(difference)
             norm_grad = torch.autograd.grad(outputs=rec_loss, inputs=pred_original_sample)[0]
 
             pred_original_sample = pred_original_sample.detach()

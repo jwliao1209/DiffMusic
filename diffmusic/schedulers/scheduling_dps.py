@@ -116,11 +116,16 @@ class DPSScheduler(DDIMScheduler):
             pred_audio = pred_audio[:, :original_waveform_length]
 
             pred_audio = self.operator.forward(pred_audio)
-            ref_mel = self.operator.transform(measurement)  # For style guidance tasks, this params might be the gram matrix
-            pred_mel = self.operator.transform(pred_audio)  # For style guidance tasks, this params might be the gram matrix
 
-            difference_mel = ref_mel - pred_mel
-            rec_loss = torch.linalg.norm(difference_mel)
+            # with VMC
+            ref_mel = self.operator.transform(measurement)
+            pred_mel = self.operator.transform(pred_audio)
+            difference = ref_mel - pred_mel
+
+            # without VMC
+            # difference = measurement - pred_audio
+
+            rec_loss = torch.linalg.norm(difference)
             norm_grad = torch.autograd.grad(outputs=rec_loss, inputs=sample)[0]
             prev_sample -= learning_rate * norm_grad
 
