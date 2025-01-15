@@ -125,7 +125,7 @@ def parse_arguments() -> Namespace:
         "--sigma",
         type=float,
         required=False,
-        default=0.05,
+        default=0.,
     )
     return parser.parse_args()
 
@@ -216,19 +216,19 @@ if __name__ == "__main__":
     match args.scheduler:
         case "ddim":
             Scheduler = DDIMScheduler
-            eta = 1.0
+            eta = 0.
         case "dps":
             Scheduler = DPSScheduler
-            eta = 1.0
+            eta = 0.
         case "mpgd":
             Scheduler = MPGDScheduler
-            eta = 1.0
+            eta = 0.
         case "dsg":
             Scheduler = DSGScheduler
             eta = 1.0
         case "diffmusic":
             Scheduler = DiffMusicScheduler
-            eta = 1.0
+            eta = 0.
         case _:
             raise ValueError(f"Unknown scheduler: {args.scheduler}")
 
