@@ -38,7 +38,7 @@ for config in "${configs[@]}"; do
                 echo "Scheduler   : $scheduler"
                 echo "Instrument  : $instrument"
                 echo "Prompt      : music of a $instrument"
-                CUDA_VISIBLE_DEVICES=0 python run.py -t "$task" -c "$config" -s "$scheduler" --instrument "$instrument" --prompt "music of a $instrument" --sigma 0.0001
+                CUDA_VISIBLE_DEVICES=0 python run.py -t "$task" -c "$config" -s "$scheduler" --instrument "$instrument" --prompt "music of a $instrument"
                 echo "=================================================="
             done
         done

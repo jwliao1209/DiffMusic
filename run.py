@@ -125,7 +125,7 @@ def parse_arguments() -> Namespace:
         "--sigma",
         type=float,
         required=False,
-        default=0,
+        default=0.,
     )
     return parser.parse_args()
 
