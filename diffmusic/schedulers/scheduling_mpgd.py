@@ -70,20 +70,20 @@ class MPGDScheduler(DDIMScheduler):
         self.operator = operator
 
     def step(
-            self,
-            model_output: torch.Tensor,
-            timestep: int,
-            sample: torch.Tensor,
-            eta: float = 0.0,
-            use_clipped_model_output: bool = False,
-            generator: Optional[torch.Generator] = None,
-            variance_noise: Optional[torch.Tensor] = None,
-            return_dict: bool = True,
-            measurement: Optional[torch.Tensor] = None,  # ref_wav
-            learning_rate: float = 1.0,
-            vae: AutoencoderKL = None,
-            vocoder: SpeechT5HifiGan = None,
-            original_waveform_length: int = 0,
+        self,
+        model_output: torch.Tensor,
+        timestep: int,
+        sample: torch.Tensor,
+        eta: float = 0.0,
+        use_clipped_model_output: bool = False,
+        generator: Optional[torch.Generator] = None,
+        variance_noise: Optional[torch.Tensor] = None,
+        return_dict: bool = True,
+        measurement: Optional[torch.Tensor] = None,  # ref_wav
+        learning_rate: float = 1.0,
+        vae: AutoencoderKL = None,
+        vocoder: SpeechT5HifiGan = None,
+        original_waveform_length: int = 0,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
 
         pred_original_sample = super().step(

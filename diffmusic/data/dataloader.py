@@ -92,13 +92,13 @@ class WAVDataset(Dataset):
 @register_dataset(name='mp3')
 class MP3Dataset(Dataset):
     def __init__(
-            self,
-            root: str,
-            sample_rate: int,
-            audio_length_in_s: int,
-            start_s: float = 0,
-            end_s: float = 0,
-            transforms: Optional[Callable] = None,
+        self,
+        root: str,
+        sample_rate: int,
+        audio_length_in_s: int,
+        start_s: float = 0,
+        end_s: float = 0,
+        transforms: Optional[Callable] = None,
     ):
         self.root = root
         self.sample_rate = sample_rate

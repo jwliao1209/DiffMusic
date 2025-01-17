@@ -11,6 +11,7 @@ from transformers import SpeechT5HifiGan
 from diffmusic.operators.operator import Operator
 from diffusers.schedulers import DDIMScheduler
 from diffusers.schedulers.scheduling_ddim import DDIMSchedulerOutput
+from diffusers.utils.torch_utils import randn_tensor
 
 
 @dataclass
@@ -82,7 +83,7 @@ class DSGScheduler(DDIMScheduler):
         vae: AutoencoderKL = None,
         vocoder: SpeechT5HifiGan = None,
         original_waveform_length: int = 0,
-        guidance_rate: float = 0.03,
+        guidance_rate: float = 0.08,
         eps: float = 1e-8,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
 
@@ -104,9 +105,9 @@ class DSGScheduler(DDIMScheduler):
             timesteps_prev = timestep - self.config.num_train_timesteps // self.num_inference_steps
             alpha_prod_t_prev = self.alphas_cumprod[timesteps_prev] if timesteps_prev >= 0 else self.final_alpha_cumprod
             variance = self._get_variance(timestep, timesteps_prev)
-            std_t = eta * variance ** (0.5)
+            std_dev_t = eta * variance ** (0.5)
             prev_sample_mean = alpha_prod_t_prev ** (0.5) * pred_original_sample + \
-                (1 - alpha_prod_t_prev - std_t ** 2) ** (0.5) * model_output
+                (1 - alpha_prod_t_prev - std_dev_t ** 2) ** (0.5) * model_output
 
             # Compute guidance
             pred_mel_spectrogram = vae.decode(
@@ -123,10 +124,16 @@ class DSGScheduler(DDIMScheduler):
             grad = torch.autograd.grad(outputs=rec_loss, inputs=sample)[0]
             grad_norm = torch.linalg.norm(grad)
             _, c, h, w = sample.shape
-            r = torch.sqrt(torch.tensor(c * h * w)) * std_t
+            r = torch.sqrt(torch.tensor(c * h * w)) * std_dev_t
             d_star = - r * grad / (grad_norm + eps)
 
-            d_sample = sample - prev_sample_mean
+            sample_noise = randn_tensor(
+                model_output.shape,
+                generator=generator,
+                device=model_output.device,
+                dtype=model_output.dtype,
+            )
+            d_sample = std_dev_t * sample_noise
             mix_direction = d_sample + guidance_rate * (d_star - d_sample)
             mix_direction_norm = torch.linalg.norm(mix_direction)
             prev_sample = prev_sample_mean + r * mix_direction / (mix_direction_norm + eps)
