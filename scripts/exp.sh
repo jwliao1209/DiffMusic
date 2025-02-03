@@ -2,32 +2,34 @@
 
 configs=(
     "configs/audioldm2.yaml"
-    "configs/musicldm.yaml"
+#    "configs/musicldm.yaml"
 )
 
 schedulers=(
 #    "dps"
-    "mpgd"
+#    "mpgd"
 #    "dsg"
-#    "diffmusic"
+    "diffmusic"
 )
 
 tasks=(
     "music_inpainting"
-    "super_resolution"
-    "phase_retrieval"
-    "music_dereverberation"
+#    "super_resolution"
+#    "phase_retrieval"
+#    "music_dereverberation"
 )
 
 instruments=(
     "bass"
-    "bowed_strings"
-    "drums"
-    "guitar"
-    "percussion"
-    "piano"
-    "wind"
+#    "bowed_strings"
+#    "drums"
+#    "guitar"
+#    "percussion"
+#    "piano"
+#    "wind"
 )
+
+prompt=""  # "music of a $instrument"
 
 for config in "${configs[@]}"; do
     for scheduler in "${schedulers[@]}"; do
@@ -37,8 +39,8 @@ for config in "${configs[@]}"; do
                 echo "Running task: $task with config: $config"
                 echo "Scheduler   : $scheduler"
                 echo "Instrument  : $instrument"
-                echo "Prompt      : music of a $instrument"
-                CUDA_VISIBLE_DEVICES=0 python run.py -t "$task" -c "$config" -s "$scheduler" --instrument "$instrument" --prompt "music of a $instrument"
+                echo "Prompt      : $prompt"
+                CUDA_VISIBLE_DEVICES=1 python run.py -t "$task" -c "$config" -s "$scheduler" --instrument "$instrument" --prompt "$prompt"
                 echo "=================================================="
             done
         done

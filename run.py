@@ -268,13 +268,16 @@ if __name__ == "__main__":
 
     # run the generation
     for i, (data, file_name) in enumerate(loader, start=1):
+        if i >= 6:
+            break
+
         file_name = file_name[0]
 
         # Check if file already exists
-        recon_path = Path(output_dir, 'wav_recon', file_name)
-        if os.path.exists(recon_path):
-            print("File {} already exists. Skipping.".format(file_name))
-            continue
+        # recon_path = Path(output_dir, 'wav_recon', file_name)
+        # if os.path.exists(recon_path):
+        #     print("File {} already exists. Skipping.".format(file_name))
+        #     continue
 
         gt_wave = data
 

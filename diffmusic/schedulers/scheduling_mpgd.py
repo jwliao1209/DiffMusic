@@ -17,9 +17,12 @@ from ..torch_utils import randn_tensor
 
 @dataclass
 class MPGDSchedulerOutput(BaseOutput):
-    prev_sample: torch.Tensor
+    sample: Optional[torch.Tensor] = None
+    prev_sample: torch.Tensor = None
     pred_original_sample: Optional[torch.Tensor] = None
     loss: Optional[torch.Tensor] = None
+    encoder_hidden_states: Optional[torch.Tensor] = None
+    encoder_hidden_states_1: Optional[torch.Tensor] = None
 
 
 class MPGDScheduler(DDIMScheduler):
@@ -84,6 +87,8 @@ class MPGDScheduler(DDIMScheduler):
         vae: AutoencoderKL = None,
         vocoder: SpeechT5HifiGan = None,
         original_waveform_length: int = 0,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        encoder_hidden_states_1: Optional[torch.Tensor] = None,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
 
         pred_original_sample = super().step(
@@ -154,5 +159,7 @@ class MPGDScheduler(DDIMScheduler):
         return MPGDSchedulerOutput(
             prev_sample=prev_sample.detach(),
             pred_original_sample=pred_original_sample,
-            loss=rec_loss,
+            loss=rec_loss.detach(),
+            encoder_hidden_states=encoder_hidden_states.detach(),
+            encoder_hidden_states_1=encoder_hidden_states_1.detach(),
         )

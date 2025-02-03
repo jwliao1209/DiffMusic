@@ -16,9 +16,12 @@ from diffusers.utils.torch_utils import randn_tensor
 
 @dataclass
 class DSGSchedulerOutput(BaseOutput):
-    prev_sample: torch.Tensor
+    sample: Optional[torch.Tensor] = None
+    prev_sample: torch.Tensor = None
     pred_original_sample: Optional[torch.Tensor] = None
     loss: Optional[torch.Tensor] = None
+    encoder_hidden_states: Optional[torch.Tensor] = None
+    encoder_hidden_states_1: Optional[torch.Tensor] = None
 
 
 class DSGScheduler(DDIMScheduler):
@@ -85,6 +88,8 @@ class DSGScheduler(DDIMScheduler):
         original_waveform_length: int = 0,
         guidance_rate: float = 0.08,
         eps: float = 1e-8,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        encoder_hidden_states_1: Optional[torch.Tensor] = None,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
 
         with torch.enable_grad():
@@ -141,5 +146,7 @@ class DSGScheduler(DDIMScheduler):
         return DSGSchedulerOutput(
             prev_sample=prev_sample.detach(),
             pred_original_sample=pred_original_sample,
-            loss=distance,
+            loss=distance.detach(),
+            encoder_hidden_states=encoder_hidden_states.detach(),
+            encoder_hidden_states_1=encoder_hidden_states_1.detach(),
         )

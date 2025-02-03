@@ -1094,14 +1094,18 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         # 6. Prepare extra step kwargs
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
-        # 7. Denoising loop
-        num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-        while True:
-            is_done = True
-            with self.progress_bar(total=num_inference_steps) as progress_bar:
-                for i, t in enumerate(timesteps):
+        # 7. Initial Noise Optimization
+        print("##### Initial Noise Optimization #####")
+        S_max = 50
+        with torch.enable_grad():
+            with self.progress_bar(total=S_max) as progress_bar:
+                for _ in range(S_max):
+                    t = timesteps[0]
                     latents = latents.detach().clone()
                     latents.requires_grad = True
+
+                    generated_prompt_embeds.requires_grad = True
+                    prompt_embeds.requires_grad = True
 
                     # expand the latents if we are doing classifier free guidance
                     latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
@@ -1123,7 +1127,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                         noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
                     # compute the previous noisy sample x_t -> x_t-1
-                    out = self.scheduler.step(
+                    out = self.scheduler.initial_noise(
                         noise_pred,
                         t,
                         latents,
@@ -1131,39 +1135,101 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                         original_waveform_length=original_waveform_length,
                         vae=self.vae,
                         vocoder=self.vocoder,
+                        encoder_hidden_states=generated_prompt_embeds,
+                        encoder_hidden_states_1=prompt_embeds,
                         **extra_step_kwargs,
                     )
 
-                    # Check if distance is nan
-                    if torch.isnan(out.loss):
-                        logger.warning(f"Detected nan in distance at step {i}. Reinitializing latents and restarting.")
-                        latents = self.prepare_latents(
-                            batch_size * num_waveforms_per_prompt,
-                            num_channels_latents,
-                            height,
-                            prompt_embeds.dtype,
-                            device,
-                            generator,
-                            latents=None,  # Reset latents
-                        )
-                        is_done = False
-                        break  # Restart the denoising loop
-
-                    latents = out.prev_sample.detach()
-
-                    # call the callback, if provided
-                    if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                    if out.loss < 1000:
+                        break
+                    else:
                         progress_bar.set_description("distance: {:.6f}".format(out.loss.item()))
                         progress_bar.update()
-                        if callback is not None and i % callback_steps == 0:
-                            step_idx = i // getattr(self.scheduler, "order", 1)
-                            callback(step_idx, t, latents)
-                if is_done:
-                    break
+
+                    latents = out.sample.detach()
+
+                    generated_prompt_embeds = out.encoder_hidden_states.detach()
+                    prompt_embeds = out.encoder_hidden_states_1.detach()
+
+        # 8. Denoising loop
+        num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
+        with torch.enable_grad():
+            while True:
+                is_done = True
+                with self.progress_bar(total=num_inference_steps) as progress_bar:
+                    for i, t in enumerate(timesteps):
+                        latents = latents.detach().clone()
+                        latents.requires_grad = True
+
+                        generated_prompt_embeds.requires_grad = True
+                        prompt_embeds.requires_grad = True
+
+                        # expand the latents if we are doing classifier free guidance
+                        latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                        latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+                        # predict the noise residual
+                        noise_pred = self.unet(
+                            latent_model_input,
+                            t,
+                            encoder_hidden_states=generated_prompt_embeds,
+                            encoder_hidden_states_1=prompt_embeds,
+                            encoder_attention_mask_1=attention_mask,
+                            return_dict=False,
+                        )[0]
+
+                        # perform guidance
+                        if do_classifier_free_guidance:
+                            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+                        # compute the previous noisy sample x_t -> x_t-1
+                        out = self.scheduler.step(
+                            noise_pred,
+                            t,
+                            latents,
+                            measurement=measurement,
+                            original_waveform_length=original_waveform_length,
+                            vae=self.vae,
+                            vocoder=self.vocoder,
+                            encoder_hidden_states=generated_prompt_embeds,
+                            encoder_hidden_states_1=prompt_embeds,
+                            **extra_step_kwargs,
+                        )
+
+                        # Check if distance is nan
+                        if torch.isnan(out.loss):
+                            logger.warning(f"Detected nan in distance at step {i}. Reinitializing latents and restarting.")
+                            latents = self.prepare_latents(
+                                batch_size * num_waveforms_per_prompt,
+                                num_channels_latents,
+                                height,
+                                prompt_embeds.dtype,
+                                device,
+                                generator,
+                                latents=None,  # Reset latents
+                            )
+                            is_done = False
+                            break  # Restart the denoising loop
+
+                        latents = out.prev_sample.detach()
+
+                        generated_prompt_embeds = out.encoder_hidden_states.detach()
+                        prompt_embeds = out.encoder_hidden_states_1.detach()
+
+                        # call the callback, if provided
+                        if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                            progress_bar.set_description("distance: {:.6f}".format(out.loss.item()))
+                            progress_bar.update()
+                            if callback is not None and i % callback_steps == 0:
+                                step_idx = i // getattr(self.scheduler, "order", 1)
+                                callback(step_idx, t, latents)
+                    if is_done:
+                        break
 
         self.maybe_free_model_hooks()
 
-        # 8. Post-processing
+        # 9. Post-processing
         if not output_type == "latent":
             latents = 1 / self.vae.config.scaling_factor * latents
             mel_spectrogram = self.vae.decode(latents).sample
@@ -1174,7 +1240,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         audio = self.mel_spectrogram_to_waveform(mel_spectrogram)
         audio = audio[0, :original_waveform_length].unsqueeze(0)
 
-        # 9. Automatic scoring
+        # 10. Automatic scoring
         # if num_waveforms_per_prompt > 1 and prompt is not None:
         #     audio = self.score_waveforms(
         #         text=prompt,

@@ -2,21 +2,21 @@
 
 models=(
     "audioldm2"
-    "musicldm"
+#    "musicldm"
 )
 
 schedulers=(
-    "dps"
-    "mpgd"
+#    "dps"
+#    "mpgd"
 #    "dsg"
-#    "diffmusic"
+    "diffmusic"
 )
 
 tasks=(
     "music_inpainting"
-    "super_resolution"
-    "phase_retrieval"
-    "music_dereverberation"
+#    "super_resolution"
+#    "phase_retrieval"
+#    "music_dereverberation"
 )
 
 for model in "${models[@]}"; do

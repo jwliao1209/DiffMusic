@@ -15,9 +15,12 @@ from diffusers.schedulers.scheduling_ddim import DDIMSchedulerOutput
 
 @dataclass
 class DDIMSchedulerOutput(BaseOutput):
-    prev_sample: torch.Tensor
+    sample: Optional[torch.Tensor] = None
+    prev_sample: torch.Tensor = None
     pred_original_sample: Optional[torch.Tensor] = None
     loss: Optional[torch.Tensor] = None
+    encoder_hidden_states: Optional[torch.Tensor] = None
+    encoder_hidden_states_1: Optional[torch.Tensor] = None
 
 
 class DDIMScheduler(DDIMScheduler):
@@ -77,6 +80,8 @@ class DDIMScheduler(DDIMScheduler):
             vae: AutoencoderKL = None,
             vocoder: SpeechT5HifiGan = None,
             original_waveform_length: int = 0,
+            encoder_hidden_states: Optional[torch.Tensor] = None,
+            encoder_hidden_states_1: Optional[torch.Tensor] = None,
     ) -> Union[DDIMSchedulerOutput, Tuple]:
 
         pred_original_sample = super().step(
@@ -103,4 +108,6 @@ class DDIMScheduler(DDIMScheduler):
             prev_sample=prev_sample.detach(),
             pred_original_sample=pred_original_sample,
             loss=torch.tensor([timestep]),
+            encoder_hidden_states=encoder_hidden_states.detach(),
+            encoder_hidden_states_1=encoder_hidden_states_1.detach(),
         )
