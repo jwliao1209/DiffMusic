@@ -1,6 +1,6 @@
-# DiffMusic: A Zero-shot Diffusion-Based Framework for Music Inverse Problem
+# DiffMusicIP: Exploring Conditional Diffusion Models Zero-shot Potential for Solving Music Inverse Problems
 
-This repository contains the implementation for final project of the CommE5070 Deep Learning for Music Analysis and Generation course, Fall 2024, at National Taiwan University. For a detailed report, please refer to this [slides](https://docs.google.com/presentation/d/1djOZFM2DMYFEPwKalCmMgZuUplhSQCBZlv7DMsROLuQ/edit?usp=sharing).
+This repository implement the diffusion-based framework for solving music inverse problems.
 
 
 ## Setup
@@ -10,6 +10,7 @@ virtualenv --python=python3.10 diffmusic
 source diffmusic/bin/activate
 pip install -r requirements.txt
 ```
+
 
 ## Download CLAP pretrained weight
 ```bash
@@ -91,9 +92,9 @@ We implemented the code on an environment running Ubuntu 22.04.1, utilizing a 12
 If you use this code, please cite the following:
 ```bibtex
 @misc{liao2024_diffmusic,
-    title  = {DiffMusic: A Unified Diffusion-Based Framework for Music Inverse Problem},
+    title  = {DiffMusicIP: Exploring Conditional Diffusion Models Zero-shot Potential for Solving Music Inverse Problems},
     author = {Jia-Wei Liao, Pin-Chi Pan, and Sheng-Ping Yang},
-    url    = {https://github.com/jwliao1209/DiffMusic},
+    url    = {https://github.com/jwliao1209/DiffMusicIP},
     year   = {2024}
 }
 ```

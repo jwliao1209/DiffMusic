@@ -228,7 +228,7 @@ if __name__ == "__main__":
             eta = 1.0
         case "diffmusic":
             Scheduler = DiffMusicScheduler
-            eta = 0.
+            eta = 1.0
         case _:
             raise ValueError(f"Unknown scheduler: {args.scheduler}")
 
@@ -268,7 +268,7 @@ if __name__ == "__main__":
 
     # run the generation
     for i, (data, file_name) in enumerate(loader, start=1):
-        if i >= 6:
+        if i ==2:
             break
 
         file_name = file_name[0]

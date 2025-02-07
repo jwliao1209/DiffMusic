@@ -10,14 +10,11 @@ from torchaudio.transforms import AmplitudeToDB, MelSpectrogram, MelScale
 class Operator:
     def transform(self, data, *args, **kwargs):
         raise NotImplementedError
-    
+
     def inverse_transform(self, data, *args, **kwargs):
         raise NotImplementedError
 
     def forward(self, data, *args, **kwargs):
-        raise NotImplementedError
-    
-    def transpose(self, data, *args, **kwargs):
         raise NotImplementedError
 
 
@@ -49,9 +46,6 @@ class IdentityOperator(Operator):
         return waveform
 
     def forward(self, data, **kwargs):
-        return data
-
-    def transpose(self, data):
         return data
 
 
@@ -142,9 +136,6 @@ class MusicInpaintingOperator(Operator):
     def forward(self, data, **kwargs):
         return self.noiser(data * self.mask.to(data.device))
 
-    def transpose(self, data):
-        return data
-
 
 class PhaseRetrievalOperator(Operator):
     """
@@ -183,9 +174,6 @@ class PhaseRetrievalOperator(Operator):
         magnitude = torch.abs(spectrogram)
         return self.noiser(magnitude)
 
-    def transpose(self, data):
-        return data
-
 
 class SuperResolutionOperator(Operator):
     """
@@ -205,7 +193,6 @@ class SuperResolutionOperator(Operator):
             ),
             AmplitudeToDB(stype="power"),
         ).to("cuda")
-
         self.noiser = noiser
 
     def transform(self, audio):
@@ -220,9 +207,6 @@ class SuperResolutionOperator(Operator):
     def forward(self, data, **kwargs):
         self.resampler = self.resampler.to(data.device)
         return self.noiser(self.resampler(data.float()))
-
-    def transpose(self, data):
-        return data
 
 
 class MusicDereverberationOperator(Operator):
@@ -244,7 +228,6 @@ class MusicDereverberationOperator(Operator):
             ),
             AmplitudeToDB(stype="power"),
         ).to("cuda")
-
         self.noiser = noiser
 
     def transform(self, audio):
@@ -270,9 +253,6 @@ class MusicDereverberationOperator(Operator):
         ).squeeze(1)
         return self.noiser(reverb_data)
 
-    def transpose(self, data):
-        return data
-
 
 class StyleGuidanceOperator(Operator):
     """
@@ -292,9 +272,6 @@ class StyleGuidanceOperator(Operator):
         return waveform
 
     def forward(self, data, **kwargs):
-        return data
-
-    def transpose(self, data):
         return data
 
 

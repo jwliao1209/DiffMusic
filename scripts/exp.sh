@@ -6,9 +6,9 @@ configs=(
 )
 
 schedulers=(
-#    "dps"
-#    "mpgd"
-#    "dsg"
+    "dps"
+    "mpgd"
+    "dsg"
     "diffmusic"
 )
 
@@ -40,7 +40,7 @@ for config in "${configs[@]}"; do
                 echo "Scheduler   : $scheduler"
                 echo "Instrument  : $instrument"
                 echo "Prompt      : $prompt"
-                CUDA_VISIBLE_DEVICES=1 python run.py -t "$task" -c "$config" -s "$scheduler" --instrument "$instrument" --prompt "$prompt"
+                CUDA_VISIBLE_DEVICES=0 python run.py -t "$task" -c "$config" -s "$scheduler" --instrument "$instrument" --prompt "$prompt"
                 echo "=================================================="
             done
         done

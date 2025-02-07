@@ -1,26 +1,15 @@
-from dataclasses import dataclass
 from typing import Optional, Union, List, Tuple
 
 import numpy as np
 import torch
 from diffusers.configuration_utils import register_to_config
 from diffusers.models import AutoencoderKL
-from diffusers.utils import BaseOutput
+from diffusers.schedulers import DDIMScheduler
 from transformers import SpeechT5HifiGan
 
-from diffmusic.operators.operator import Operator
-from diffusers.schedulers import DDIMScheduler
-from diffusers.schedulers.scheduling_ddim import DDIMSchedulerOutput
-
-
-@dataclass
-class DDIMSchedulerOutput(BaseOutput):
-    sample: Optional[torch.Tensor] = None
-    prev_sample: torch.Tensor = None
-    pred_original_sample: Optional[torch.Tensor] = None
-    loss: Optional[torch.Tensor] = None
-    encoder_hidden_states: Optional[torch.Tensor] = None
-    encoder_hidden_states_1: Optional[torch.Tensor] = None
+from .utils import InverseProblemSchedulerOutput
+from ..operators.operator import Operator
+from ..torch_utils import randn_tensor
 
 
 class DDIMScheduler(DDIMScheduler):
@@ -67,22 +56,28 @@ class DDIMScheduler(DDIMScheduler):
         self.operator = operator
 
     def step(
-            self,
-            model_output: torch.Tensor,
-            timestep: int,
-            sample: torch.Tensor,
-            eta: float = 0.0,
-            use_clipped_model_output: bool = False,
-            generator: Optional[torch.Generator] = None,
-            variance_noise: Optional[torch.Tensor] = None,
-            return_dict: bool = True,
-            measurement: Optional[torch.Tensor] = None,  # ref_wav
-            vae: AutoencoderKL = None,
-            vocoder: SpeechT5HifiGan = None,
-            original_waveform_length: int = 0,
-            encoder_hidden_states: Optional[torch.Tensor] = None,
-            encoder_hidden_states_1: Optional[torch.Tensor] = None,
-    ) -> Union[DDIMSchedulerOutput, Tuple]:
+        self,
+        model_output: torch.Tensor,
+        timestep: int,
+        sample: torch.Tensor,
+        eta: float = 0.0,
+        use_clipped_model_output: bool = False,
+        generator: Optional[torch.Generator] = None,
+        variance_noise: Optional[torch.Tensor] = None,
+        return_dict: bool = True,
+        measurement: Optional[torch.Tensor] = None,  # ref_wav
+        vae: AutoencoderKL = None,
+        vocoder: SpeechT5HifiGan = None,
+        original_waveform_length: int = 0,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        encoder_hidden_states_1: Optional[torch.Tensor] = None,
+    ) -> Union[InverseProblemSchedulerOutput, Tuple]:
+
+        timesteps_prev = timestep - self.config.num_train_timesteps // self.num_inference_steps
+        alpha_prod_t = self.alphas_cumprod[timestep]
+        beta_prod_t = 1 - alpha_prod_t
+        alpha_prod_t_prev = self.alphas_cumprod[timesteps_prev] if timesteps_prev >= 0 else self.final_alpha_cumprod
+        beta_prod_t_prev = 1 - alpha_prod_t_prev
 
         pred_original_sample = super().step(
             model_output=model_output,
@@ -95,16 +90,10 @@ class DDIMScheduler(DDIMScheduler):
             return_dict=return_dict,
         ).pred_original_sample
 
-        timesteps_prev = timestep - self.config.num_train_timesteps // self.num_inference_steps
-        alpha_prod_t = self.alphas_cumprod[timestep]
-        beta_prod_t = 1 - alpha_prod_t
-        alpha_prod_t_prev = self.alphas_cumprod[timesteps_prev] if timesteps_prev >= 0 else self.final_alpha_cumprod
-        beta_prod_t_prev = 1 - alpha_prod_t_prev
-
         noise_pred = (sample - (alpha_prod_t ** 0.5) * pred_original_sample) / (beta_prod_t ** 0.5)
         prev_sample = (alpha_prod_t_prev ** 0.5) * pred_original_sample + (beta_prod_t_prev ** 0.5) * noise_pred
 
-        return DDIMSchedulerOutput(
+        return InverseProblemSchedulerOutput(
             prev_sample=prev_sample.detach(),
             pred_original_sample=pred_original_sample,
             loss=torch.tensor([timestep]),

@@ -1,27 +1,16 @@
-from dataclasses import dataclass
 from typing import Optional, Union, List, Tuple
 
 import numpy as np
 import torch
 from diffusers.configuration_utils import register_to_config
 from diffusers.models import AutoencoderKL
-from diffusers.utils import BaseOutput
+from diffusers.schedulers import DDIMScheduler
+
 from transformers import SpeechT5HifiGan
 
-from diffmusic.operators.operator import Operator
-from diffusers.schedulers import DDIMScheduler
-from diffusers.schedulers.scheduling_ddim import DDIMSchedulerOutput
-from diffusers.utils.torch_utils import randn_tensor
-
-
-@dataclass
-class DSGSchedulerOutput(BaseOutput):
-    sample: Optional[torch.Tensor] = None
-    prev_sample: torch.Tensor = None
-    pred_original_sample: Optional[torch.Tensor] = None
-    loss: Optional[torch.Tensor] = None
-    encoder_hidden_states: Optional[torch.Tensor] = None
-    encoder_hidden_states_1: Optional[torch.Tensor] = None
+from .utils import InverseProblemSchedulerOutput
+from ..operators.operator import Operator
+from ..torch_utils import randn_tensor
 
 
 class DSGScheduler(DDIMScheduler):
@@ -69,8 +58,18 @@ class DSGScheduler(DDIMScheduler):
             timestep_spacing=timestep_spacing,
             rescale_betas_zero_snr=rescale_betas_zero_snr,
         )
-
         self.operator = operator
+
+    @staticmethod
+    def slerp(x0, x1, gamma=0.008, threshold=0.9995):
+        cos_theta = ((x0 / torch.norm(x0)) * (x1 / torch.norm(x1))).sum()
+        if cos_theta.abs() > threshold:
+            return x0 + gamma * (x1 - x0)
+        theta = torch.acos(cos_theta)
+        sin_theta = torch.sin(theta)
+        w0 = torch.sin((1 - gamma) * theta) / sin_theta
+        w1 = torch.sin(gamma * theta) / sin_theta
+        return w0 * x0 + w1 * x1
 
     def step(
         self,
@@ -90,7 +89,13 @@ class DSGScheduler(DDIMScheduler):
         eps: float = 1e-8,
         encoder_hidden_states: Optional[torch.Tensor] = None,
         encoder_hidden_states_1: Optional[torch.Tensor] = None,
-    ) -> Union[DDIMSchedulerOutput, Tuple]:
+        supervised_space: str = "mel_spectrogram",
+    ) -> Union[InverseProblemSchedulerOutput, Tuple]:
+
+        timesteps_prev = timestep - self.config.num_train_timesteps // self.num_inference_steps
+        alpha_prod_t_prev = self.alphas_cumprod[timesteps_prev] if timesteps_prev >= 0 else self.final_alpha_cumprod
+        variance = self._get_variance(timestep, timesteps_prev)
+        std_dev_t = eta * variance ** (0.5)
 
         with torch.enable_grad():
             sample = sample.clone().detach().requires_grad_(True)
@@ -107,10 +112,6 @@ class DSGScheduler(DDIMScheduler):
             ).pred_original_sample
 
             # Compute mean
-            timesteps_prev = timestep - self.config.num_train_timesteps // self.num_inference_steps
-            alpha_prod_t_prev = self.alphas_cumprod[timesteps_prev] if timesteps_prev >= 0 else self.final_alpha_cumprod
-            variance = self._get_variance(timestep, timesteps_prev)
-            std_dev_t = eta * variance ** (0.5)
             prev_sample_mean = alpha_prod_t_prev ** (0.5) * pred_original_sample + \
                 (1 - alpha_prod_t_prev - std_dev_t ** 2) ** (0.5) * model_output
 
@@ -121,17 +122,22 @@ class DSGScheduler(DDIMScheduler):
             pred_audio = self.operator.inverse_transform(pred_mel_spectrogram, vocoder)
             pred_audio = pred_audio[:, :original_waveform_length]
             pred_audio = self.operator.forward(pred_audio)
-            ref_mel = self.operator.transform(measurement)
-            pred_mel = self.operator.transform(pred_audio)
-            rec_loss = torch.nn.functional.mse_loss(ref_mel, pred_mel)
-            distance = torch.linalg.norm(ref_mel - pred_mel)
 
-            grad = torch.autograd.grad(outputs=rec_loss, inputs=sample)[0]
+            if supervised_space == "wav_form":
+                difference = measurement - pred_audio
+            elif supervised_space == "mel_spectrogram":
+                ref_mel = self.operator.transform(measurement)
+                pred_mel = self.operator.transform(pred_audio)
+                difference = ref_mel - pred_mel
+            else:
+                raise ValueError("supervised_space should be either 'wav_form' or 'mel_spectrogram")
+
+            rec_loss = torch.linalg.norm(difference)
+            grad = torch.autograd.grad(outputs=rec_loss / 1000, inputs=sample)[0]
             grad_norm = torch.linalg.norm(grad)
             _, c, h, w = sample.shape
             r = torch.sqrt(torch.tensor(c * h * w)) * std_dev_t
             d_star = - r * grad / (grad_norm + eps)
-
             sample_noise = randn_tensor(
                 model_output.shape,
                 generator=generator,
@@ -143,10 +149,10 @@ class DSGScheduler(DDIMScheduler):
             mix_direction_norm = torch.linalg.norm(mix_direction)
             prev_sample = prev_sample_mean + r * mix_direction / (mix_direction_norm + eps)
 
-        return DSGSchedulerOutput(
+        return InverseProblemSchedulerOutput(
             prev_sample=prev_sample.detach(),
             pred_original_sample=pred_original_sample,
-            loss=distance.detach(),
+            loss=rec_loss.detach(),
             encoder_hidden_states=encoder_hidden_states.detach(),
             encoder_hidden_states_1=encoder_hidden_states_1.detach(),
         )
