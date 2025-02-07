@@ -8,7 +8,7 @@ from diffusers.schedulers import DDIMScheduler
 from transformers import SpeechT5HifiGan
 
 from .utils import InverseProblemSchedulerOutput
-from ..operators.operator import Operator
+from ..inverse_problem.operator import BaseOperator
 from ..torch_utils import randn_tensor
 
 
@@ -17,7 +17,7 @@ class DDIMScheduler(DDIMScheduler):
     @register_to_config
     def __init__(
         self,
-        operator: Operator = None,
+        operator: BaseOperator = None,
         num_train_timesteps: int = 1000,
         beta_start: float = 0.0001,
         beta_end: float = 0.02,

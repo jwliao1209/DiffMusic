@@ -22,10 +22,10 @@ def register_dataset(name: str) -> Callable:
     return wrapper
 
 
-def get_dataset(name: str, root: str, **kwargs) -> Dataset:
-    if __DATASET__.get(name, None) is None:
-        raise NameError(f"Dataset {name} is not defined.")
-    return __DATASET__[name](root=root, **kwargs)
+def get_dataset(name: str, type: str, root: str, **kwargs) -> Dataset:
+    if __DATASET__.get(type, None) is None:
+        raise NameError(f"Dataset {type} is not defined.")
+    return __DATASET__[type](root=root, **kwargs)
 
 
 def get_dataloader(

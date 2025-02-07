@@ -930,6 +930,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         output_type: Optional[str] = "np",
         measurement: Optional[torch.Tensor] = None,
         optim_prompt: bool = False,
+        ip_guidance_rate: float = 1.0,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -1223,6 +1224,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                                 original_waveform_length=original_waveform_length,
                                 vae=self.vae,
                                 vocoder=self.vocoder,
+                                ip_guidance_rate=ip_guidance_rate,
                                 encoder_hidden_states=out.encoder_hidden_states,
                                 encoder_hidden_states_1=out.encoder_hidden_states_1,
                                 **extra_step_kwargs,

@@ -9,7 +9,7 @@ from diffusers.schedulers import DDIMScheduler
 from transformers import SpeechT5HifiGan
 
 from .utils import InverseProblemSchedulerOutput
-from ..operators.operator import Operator
+from ..inverse_problem.operator import BaseOperator
 from ..torch_utils import randn_tensor
 
 
@@ -22,7 +22,7 @@ class DPSScheduler(DDIMScheduler):
     @register_to_config
     def __init__(
         self,
-        operator: Operator = None,
+        operator: BaseOperator = None,
         num_train_timesteps: int = 1000,
         beta_start: float = 0.0001,
         beta_end: float = 0.02,
@@ -71,7 +71,7 @@ class DPSScheduler(DDIMScheduler):
         variance_noise: Optional[torch.Tensor] = None,
         return_dict: bool = True,
         measurement: Optional[torch.Tensor] = None,  # ref_wav
-        guidance_rate: float = 5e-4,
+        ip_guidance_rate: float = 5e-4,
         vae: AutoencoderKL = None,
         vocoder: SpeechT5HifiGan = None,
         original_waveform_length: int = 0,
@@ -136,7 +136,7 @@ class DPSScheduler(DDIMScheduler):
 
             rec_loss = torch.linalg.norm(difference)
             norm_grad = torch.autograd.grad(outputs=rec_loss, inputs=sample)[0]
-            prev_sample -= guidance_rate * norm_grad
+            prev_sample -= ip_guidance_rate * norm_grad
 
         return InverseProblemSchedulerOutput(
             prev_sample=prev_sample.detach(),

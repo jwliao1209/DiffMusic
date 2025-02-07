@@ -39,8 +39,7 @@ To address an inverse problem, you can use the following command:
 ```bash
 python run.py \
     --task <Inverse Problem Task: {music_generation, music_inpainting, phase_retrieval, super_resolution, dereverberation, style_guidance}> \
-    --scheduler <Sampling Scheduler: ddim, dps, mpgd, dsg, diffmusic> \
-    --config_path <Path to Model Configuration> \
+    --config_name <Sampling Scheduler: ddim, dps, mpgd, dsg, diffmusic> \
     --prompt ""
 ```
 
@@ -54,7 +53,7 @@ The following tasks can be specified with the `--task` option:
 - `style_guidance`
 
 ### Available Scheduler
-The following tasks can be specified with the `--scheduler` option:
+The following tasks can be specified with the `--config_name` option:
 - `ddim`
 - `dps`
 - `mpgd`
