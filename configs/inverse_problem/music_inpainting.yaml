@@ -1,0 +1,4 @@
+name: music_inpainting
+noise:
+  name: gaussian
+  sigma: 0.

@@ -9,7 +9,7 @@ from torch.cuda.amp.grad_scaler import GradScaler
 from transformers import SpeechT5HifiGan
 
 from .utils import InverseProblemSchedulerOutput
-from ..operators.operator import Operator
+from ..inverse_problem.operator import BaseOperator
 from ..torch_utils import randn_tensor
 
 
@@ -18,7 +18,7 @@ class DiffMusicScheduler(DDIMScheduler):
     @register_to_config
     def __init__(
         self,
-        operator: Operator = None,
+        operator: BaseOperator = None,
         num_train_timesteps: int = 1000,
         beta_start: float = 0.0001,
         beta_end: float = 0.02,
@@ -227,7 +227,7 @@ class DiffMusicScheduler(DDIMScheduler):
         vae: AutoencoderKL = None,
         vocoder: SpeechT5HifiGan = None,
         original_waveform_length: int = 0,
-        guidance_rate: float = 0.08,
+        ip_guidance_rate: float = 0.08,
         eps: float = 1e-8,
         supervised_space: str = "mel_spectrogram",
     ) -> Union[InverseProblemSchedulerOutput, Tuple]:
@@ -286,7 +286,7 @@ class DiffMusicScheduler(DDIMScheduler):
             )
             sample_noise_norm = torch.linalg.norm(sample_noise)
             normalized_grad =  grad / (grad_norm + eps) * sample_noise_norm
-            mixed_epsion = self.slerp(sample_noise, -normalized_grad, guidance_rate)
+            mixed_epsion = self.slerp(sample_noise, -normalized_grad, ip_guidance_rate)
             prev_sample = prev_sample_mean + std_dev_t * mixed_epsion
 
         return InverseProblemSchedulerOutput(

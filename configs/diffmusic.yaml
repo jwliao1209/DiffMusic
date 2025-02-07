@@ -1,0 +1,11 @@
+name: diffmusic
+
+defaults:
+  - data: moises
+  - model: audioldm2
+  - inverse_problem: music_inpainting
+
+scheduler:
+  eta: 1.0
+  ip_guidance_rate: 0.08
+  optim_prompt: true

@@ -6,27 +6,21 @@ import scipy
 import torch
 import torchaudio
 import soundfile as sf
-from omegaconf import OmegaConf
+from hydra import initialize, compose
 
+from diffmusic.constants import CONFIG_PATH
 from diffmusic.data.dataloader import get_dataset, get_dataloader
 from diffmusic.pipelines import get_pipeline
-from diffmusic.operators.operator import (
+from diffmusic.inverse_problem import get_noiser
+from diffmusic.inverse_problem.operator import (
     IdentityOperator,
     MusicInpaintingOperator,
     PhaseRetrievalOperator,
     SuperResolutionOperator,
     MusicDereverberationOperator,
     StyleGuidanceOperator,
-    GaussianNoise,
-    PoissonNoise,
 )
-
-from diffmusic.schedulers.scheduling_ddim import DDIMScheduler
-from diffmusic.schedulers.scheduling_dps import DPSScheduler
-from diffmusic.schedulers.scheduling_mpgd import MPGDScheduler
-from diffmusic.schedulers.scheduling_dsg import DSGScheduler
-from diffmusic.schedulers.scheduling_diffmusic import DiffMusicScheduler
-
+from diffmusic.schedulers import get_scheduler
 from diffmusic.utils import waveform_to_spectrogram
 from diffmusic.constants import (
     AUDIOLDM2, MUSICLDM,
@@ -34,12 +28,24 @@ from diffmusic.constants import (
     PHASE_RETREVAL, MUSIC_DEREVERBERATION, STYLE_GUIDANCE,
     DDIM, DPS, MPGD, DSG, DIFFMUSIC,
 )
-
 from diffmusic.msclap import CLAP
 
 
 def parse_arguments() -> Namespace:
     parser = ArgumentParser()
+    parser.add_argument(
+        "-c",
+        "--config_name",
+        type=str,
+        default=DIFFMUSIC,
+        choices=[
+            DDIM,
+            DPS,
+            MPGD,
+            DSG,
+            DIFFMUSIC,
+        ],
+    )
     parser.add_argument(
         "--instrument",
         type=str,
@@ -72,34 +78,10 @@ def parse_arguments() -> Namespace:
         ],
     )
     parser.add_argument(
-        "-s",
-        "--scheduler",
-        type=str,
-        default=DPS,
-        choices=[
-            DDIM,
-            DPS,
-            MPGD,
-            DSG,
-            DIFFMUSIC,
-        ],
-    )
-    parser.add_argument(
-        "-c",
-        "--config_path",
-        type=str,
-        default="configs/audioldm2.yaml",
-        choices=[
-            "configs/audioldm2.yaml",
-            "configs/musicldm.yaml",
-            # "configs/stable_audio.yaml",
-        ],
-    )
-    parser.add_argument(
         "-p",
         "--prompt",
         type=str,
-        default=None,
+        default="",
     )
     parser.add_argument(
         "-np",
@@ -114,38 +96,19 @@ def parse_arguments() -> Namespace:
         default="",
         help="Transcription for Text-to-Speech",
     )
-    parser.add_argument(
-        "--noise",
-        type=str,
-        required=False,
-        default="gaussian",
-        choices=["gaussian", "poisson"],
-    )
-    parser.add_argument(
-        "--sigma",
-        type=float,
-        required=False,
-        default=0.,
-    )
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+def main() -> None:
     args = parse_arguments()
-    config = OmegaConf.load(args.config_path)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    with initialize(config_path=CONFIG_PATH):
+        config = compose(config_name=args.config_name)
 
-    output_dir = Path("outputs", config.name, args.scheduler, args.task)
+    output_dir = Path("outputs", config.model.name, args.config_name, args.task)
     for d in ["wav_input", "wav_recon", "wav_label", "mel_input", "mel_recon", "mel_label"]:
         os.makedirs(Path(output_dir, d), exist_ok=True)
-
-    match args.noise:
-        case "gaussian":
-            Noiser = GaussianNoise(args.sigma)
-        case "poisson":
-            Noiser = PoissonNoise(args.sigma)
-        case _:
-            raise ValueError(f"Unknown noise: {args.noise}")
+    
+    Noiser = get_noiser(**config.inverse_problem.noise)
 
     match args.task:
         case "music_generation":
@@ -160,7 +123,7 @@ if __name__ == "__main__":
             end_inpainting_s = config.data.end_inpainting_s - config.data.start_s
             downsample_scale = 1
             Operator = MusicInpaintingOperator(
-                audio_length_in_s=config.pipe.audio_length_in_s,
+                audio_length_in_s=config.model.pipe.audio_length_in_s,
                 sample_rate=config.data.sample_rate,
                 mask_type=args.mask_type,
                 # for box
@@ -213,28 +176,10 @@ if __name__ == "__main__":
         case _:
             raise ValueError(f"Unknown task: {args.task}")
 
-    match args.scheduler:
-        case "ddim":
-            Scheduler = DDIMScheduler
-            eta = 0.
-        case "dps":
-            Scheduler = DPSScheduler
-            eta = 0.
-        case "mpgd":
-            Scheduler = MPGDScheduler
-            eta = 0.
-        case "dsg":
-            Scheduler = DSGScheduler
-            eta = 1.0
-        case "diffmusic":
-            Scheduler = DiffMusicScheduler
-            eta = 1.0
-        case _:
-            raise ValueError(f"Unknown scheduler: {args.scheduler}")
-
     # prepare the pipeline
-    pipe = get_pipeline(config=config).from_pretrained(config.repo_id, torch_dtype=torch.float16)
-    pipe.scheduler = Scheduler(operator=Operator, **config.scheduler)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    pipe = get_pipeline(pip_name=config.model.name).from_pretrained(config.model.repo_id, torch_dtype=torch.float16)
+    pipe.scheduler = get_scheduler(scheduler_name=config.name)(operator=Operator, **config.model.scheduler)
     pipe = pipe.to(device)
 
     # set the seed for generator
@@ -255,9 +200,10 @@ if __name__ == "__main__":
 
     dataset = get_dataset(
         name=config.data.name,
+        type=config.data.type,
         root=os.path.join(config.data.root, args.instrument),
         sample_rate=config.data.sample_rate,
-        audio_length_in_s=config.pipe.audio_length_in_s,
+        audio_length_in_s=config.model.pipe.audio_length_in_s,
         start_s=config.data.start_s,
         end_s=config.data.end_s,
         transforms=None,
@@ -268,9 +214,6 @@ if __name__ == "__main__":
 
     # run the generation
     for i, (data, file_name) in enumerate(loader, start=1):
-        if i ==2:
-            break
-
         file_name = file_name[0]
 
         # Check if file already exists
@@ -280,9 +223,8 @@ if __name__ == "__main__":
         #     continue
 
         gt_wave = data
-
         gt_mel_spectrogram = wav2mel(gt_wave)
-        gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1).unsqueeze(0)
+        gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.model.pipe.audio_length_in_s * 100)].permute(0, 2, 1).unsqueeze(0)
         pipe.save_mel_spectrogram(
             gt_mel_spectrogram,
             Path(output_dir, 'mel_label', file_name).with_suffix('.png'),
@@ -293,7 +235,7 @@ if __name__ == "__main__":
 
             # TODO: move mel spectrogram to dataloader
             ref_mel_spectrogram = wav2mel(ref_wave)
-            ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
+            ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(config.model.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
 
             pipe.save_mel_spectrogram(
                 ref_mel_spectrogram.unsqueeze(0),
@@ -307,7 +249,7 @@ if __name__ == "__main__":
             ref_mel_spectrogram = ref_mel_spectrogram.to(device)
 
             _, ref_phase = waveform_to_spectrogram(waveform=ref_wave)
-            ref_phase = ref_phase[:, :, : int(config.pipe.audio_length_in_s * 100)].to(device)
+            ref_phase = ref_phase[:, :, : int(config.model.pipe.audio_length_in_s * 100)].to(device)
 
             ref_mel_spectrogram = ref_mel_spectrogram.unsqueeze(0)
 
@@ -318,18 +260,15 @@ if __name__ == "__main__":
         else:
             raise ValueError(f"Unknown task: {args.task}")
 
-        # initialize the latents
-        # latents = pipe.vae.encode(ref_mel_spectrogram.half()).latent_dist.sample(generator)
-        # latents = pipe.vae.config.scaling_factor * latents
-
         audio = pipe(
             latents=None,
             prompt=args.prompt,
             negative_prompt=args.negative_prompt,
             measurement=measurement,
-            eta=eta,
+            eta=config.scheduler.eta,
+            ip_guidance_rate=config.scheduler.ip_guidance_rate,
             generator=generator,
-            **config.pipe,
+            **config.model.pipe,
         ).audios
 
         # save inputs
@@ -353,7 +292,7 @@ if __name__ == "__main__":
 
         # save the predicted mel spectrogram
         pred_mel_spectrogram = wav2mel(torch.tensor(audio))
-        pred_mel_spectrogram = pred_mel_spectrogram[:, :, :int(config.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
+        pred_mel_spectrogram = pred_mel_spectrogram[:, :, :int(config.model.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
         pipe.save_mel_spectrogram(
             pred_mel_spectrogram,
             Path(output_dir, 'mel_recon', file_name).with_suffix('.png'),
@@ -361,7 +300,7 @@ if __name__ == "__main__":
 
         # save the best audio sample (index 0) as a .wav file
         # TODO: refactor interface to save the music
-        if config.name in [AUDIOLDM2, MUSICLDM]:
+        if config.model.name in [AUDIOLDM2, MUSICLDM]:
             # save outputs
             scipy.io.wavfile.write(
                 Path(output_dir, 'wav_recon', file_name),
@@ -375,3 +314,6 @@ if __name__ == "__main__":
         #         audio[0].T.float().cpu().numpy(),
         #         pipe.vae.sampling_rate,
         #     )
+
+if __name__ == "__main__":
+    main()

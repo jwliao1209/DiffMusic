@@ -1,3 +1,5 @@
+CONFIG_PATH = "configs"
+
 # model
 AUDIOLDM2 = "audioldm2"
 MUSICLDM = "musicldm"
