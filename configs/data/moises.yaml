@@ -1,0 +1,13 @@
+name: moises
+type: wav  # wav, mp3
+root: ./data/clips_inst_sample  # [bass, bowed_strings, drums, guitar, percussion, piano, wind]
+sample_rate: 16000
+n_fft: 1024
+hop_length: 160
+win_length: 1024
+n_mels: 64
+power: 2.0
+start_s: 10
+end_s: 15
+start_inpainting_s: 12
+end_inpainting_s: 13
