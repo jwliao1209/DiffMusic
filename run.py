@@ -28,7 +28,6 @@ from diffmusic.constants import (
     PHASE_RETREVAL, MUSIC_DEREVERBERATION, STYLE_GUIDANCE,
     DDIM, DPS, MPGD, DSG, DIFFMUSIC,
 )
-from diffmusic.msclap import CLAP
 
 
 def parse_arguments() -> Namespace:
@@ -107,7 +106,7 @@ def main() -> None:
     output_dir = Path("outputs", config.model.name, args.config_name, args.task)
     for d in ["wav_input", "wav_recon", "wav_label", "mel_input", "mel_recon", "mel_label"]:
         os.makedirs(Path(output_dir, d), exist_ok=True)
-    
+
     Noiser = get_noiser(**config.inverse_problem.noise)
 
     match args.task:
@@ -164,15 +163,6 @@ def main() -> None:
                 decay_factor=0.99,
                 noiser=Noiser,
             )
-        case "style_guidance":
-            start_inpainting_s = None
-            end_inpainting_s = None
-            downsample_scale = 1
-            # "CLAP_weights_2022.pth", "CLAP_weights_2023.pth"
-            clap_model = CLAP("CLAP_weights/CLAP_weights_2023.pth", version='2023', use_cuda=True)
-            Operator = StyleGuidanceOperator(
-                clap_model=clap_model,
-            )
         case _:
             raise ValueError(f"Unknown task: {args.task}")
 
@@ -224,7 +214,9 @@ def main() -> None:
 
         gt_wave = data
         gt_mel_spectrogram = wav2mel(gt_wave)
-        gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.model.pipe.audio_length_in_s * 100)].permute(0, 2, 1).unsqueeze(0)
+        gt_mel_spectrogram = gt_mel_spectrogram[:, :, :int(config.model.pipe.audio_length_in_s * 100)].permute(0, 2,
+                                                                                                               1).unsqueeze(
+            0)
         pipe.save_mel_spectrogram(
             gt_mel_spectrogram,
             Path(output_dir, 'mel_label', file_name).with_suffix('.png'),
@@ -235,7 +227,9 @@ def main() -> None:
 
             # TODO: move mel spectrogram to dataloader
             ref_mel_spectrogram = wav2mel(ref_wave)
-            ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(config.model.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
+            ref_mel_spectrogram = ref_mel_spectrogram[:, :, :int(config.model.pipe.audio_length_in_s * 100)].permute(0,
+                                                                                                                     2,
+                                                                                                                     1)
 
             pipe.save_mel_spectrogram(
                 ref_mel_spectrogram.unsqueeze(0),
@@ -267,7 +261,9 @@ def main() -> None:
             measurement=measurement,
             eta=config.scheduler.eta,
             ip_guidance_rate=config.scheduler.ip_guidance_rate,
+            optim_prompt_learning_rate=config.scheduler.optim_prompt_learning_rate,
             generator=generator,
+            optim_prompt=config.scheduler.optim_prompt,
             **config.model.pipe,
         ).audios
 
@@ -292,7 +288,8 @@ def main() -> None:
 
         # save the predicted mel spectrogram
         pred_mel_spectrogram = wav2mel(torch.tensor(audio))
-        pred_mel_spectrogram = pred_mel_spectrogram[:, :, :int(config.model.pipe.audio_length_in_s * 100)].permute(0, 2, 1)
+        pred_mel_spectrogram = pred_mel_spectrogram[:, :, :int(config.model.pipe.audio_length_in_s * 100)].permute(0, 2,
+                                                                                                                   1)
         pipe.save_mel_spectrogram(
             pred_mel_spectrogram,
             Path(output_dir, 'mel_recon', file_name).with_suffix('.png'),
@@ -314,6 +311,7 @@ def main() -> None:
         #         audio[0].T.float().cpu().numpy(),
         #         pipe.vae.sampling_rate,
         #     )
+
 
 if __name__ == "__main__":
     main()

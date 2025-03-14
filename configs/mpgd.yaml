@@ -2,10 +2,11 @@ name: mpgd
 
 defaults:
   - data: moises
-  - model: audioldm2
+  - model: audioldm2  # audioldm2, musicldm
   - inverse_problem: music_inpainting
 
 scheduler:
   eta: 0.
-  ip_guidance_rate: 0.0005
+  ip_guidance_rate: 0.005
   optim_prompt: false
+  optim_prompt_learning_rate: 1e-4

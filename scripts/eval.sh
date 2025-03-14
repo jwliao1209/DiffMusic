@@ -6,9 +6,9 @@ models=(
 )
 
 schedulers=(
-#    "dps"
-#    "mpgd"
-#    "dsg"
+    "dps"
+    "mpgd"
+    "dsg"
     "diffmusic"
 )
 

@@ -1,9 +1,9 @@
 #!/bin/bash
 
 config_names=(
-    # "dps"
-    # "mpgd"
-    # "dsg"
+#    "dps"
+#    "mpgd"
+#    "dsg"
     "diffmusic"
 )
 

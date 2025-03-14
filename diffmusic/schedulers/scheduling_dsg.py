@@ -60,6 +60,73 @@ class DSGScheduler(DDIMScheduler):
         )
         self.operator = operator
 
+    def optim_prompt(
+            self,
+            model_output: torch.Tensor,
+            timestep: int,
+            sample: torch.Tensor,
+            encoder_hidden_states: Optional[torch.Tensor] = None,
+            encoder_hidden_states_1: Optional[torch.Tensor] = None,
+            eta: float = 0.0,
+            use_clipped_model_output: bool = False,
+            generator: Optional[torch.Generator] = None,
+            variance_noise: Optional[torch.Tensor] = None,
+            return_dict: bool = True,
+            measurement: Optional[torch.Tensor] = None,  # ref_wav
+            vae: AutoencoderKL = None,
+            vocoder: SpeechT5HifiGan = None,
+            original_waveform_length: int = 0,
+            optim_prompt_learning_rate: float = 1e-4,
+            supervised_space: str = "mel_spectrogram",
+    ) -> Union[InverseProblemSchedulerOutput, Tuple]:
+        """
+        Update prompt embedding
+        """
+        if encoder_hidden_states is not None:
+            optimizer = torch.optim.SGD([encoder_hidden_states, encoder_hidden_states_1], lr=optim_prompt_learning_rate)
+        else:
+            optimizer = torch.optim.SGD([encoder_hidden_states_1], lr=optim_prompt_learning_rate)
+
+        with torch.enable_grad():
+            for _ in range(1):
+                optimizer.zero_grad()
+                pred_original_sample = super().step(
+                    model_output=model_output,
+                    timestep=timestep,
+                    sample=sample,
+                    eta=eta,
+                    use_clipped_model_output=use_clipped_model_output,
+                    generator=generator,
+                    variance_noise=variance_noise,
+                    return_dict=return_dict,
+                ).pred_original_sample
+
+                pred_mel_spectrogram = vae.decode(
+                    1 / vae.config.scaling_factor * pred_original_sample
+                ).sample
+
+                pred_audio = self.operator.inverse_transform(pred_mel_spectrogram, vocoder)
+                pred_audio = pred_audio[:, :original_waveform_length]
+                pred_audio = self.operator.forward(pred_audio)
+
+                if supervised_space == "wav_form":
+                    difference = measurement - pred_audio
+                elif supervised_space == "mel_spectrogram":
+                    ref_mel = self.operator.transform(measurement)
+                    pred_mel = self.operator.transform(pred_audio)
+                    difference = ref_mel - pred_mel
+                else:
+                    raise ValueError("supervised_space should be either 'wav_form' or 'mel_spectrogram")
+
+                rec_loss = torch.linalg.norm(difference)
+                rec_loss.backward()
+                optimizer.step()
+
+        return InverseProblemSchedulerOutput(
+            encoder_hidden_states=encoder_hidden_states.detach(),
+            encoder_hidden_states_1=encoder_hidden_states_1.detach(),
+        )
+
     @staticmethod
     def slerp(x0, x1, gamma=0.008, threshold=0.9995):
         cos_theta = ((x0 / torch.norm(x0)) * (x1 / torch.norm(x1))).sum()
@@ -87,8 +154,6 @@ class DSGScheduler(DDIMScheduler):
         original_waveform_length: int = 0,
         ip_guidance_rate: float = 0.08,
         eps: float = 1e-8,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
-        encoder_hidden_states_1: Optional[torch.Tensor] = None,
         supervised_space: str = "mel_spectrogram",
     ) -> Union[InverseProblemSchedulerOutput, Tuple]:
 
@@ -153,6 +218,4 @@ class DSGScheduler(DDIMScheduler):
             prev_sample=prev_sample.detach(),
             pred_original_sample=pred_original_sample,
             loss=rec_loss.detach(),
-            encoder_hidden_states=encoder_hidden_states.detach(),
-            encoder_hidden_states_1=encoder_hidden_states_1.detach(),
         )

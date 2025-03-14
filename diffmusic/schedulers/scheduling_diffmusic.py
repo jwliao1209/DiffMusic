@@ -5,7 +5,7 @@ import torch
 from diffusers.configuration_utils import register_to_config
 from diffusers.models import AutoencoderKL
 from diffusers.schedulers import DDIMScheduler
-from torch.cuda.amp.grad_scaler import GradScaler
+
 from transformers import SpeechT5HifiGan
 
 from .utils import InverseProblemSchedulerOutput
@@ -56,82 +56,6 @@ class DiffMusicScheduler(DDIMScheduler):
         )
         self.operator = operator
 
-    def initial_noise(
-        self,
-        model_output: torch.Tensor,
-        timestep: int,
-        sample: torch.Tensor,
-        eta: float = 0.0,
-        use_clipped_model_output: bool = False,
-        generator: Optional[torch.Generator] = None,
-        variance_noise: Optional[torch.Tensor] = None,
-        return_dict: bool = True,
-        measurement: Optional[torch.Tensor] = None,  # ref_wav
-        learning_rate: float = 1e-3,
-        vae: AutoencoderKL = None,
-        vocoder: SpeechT5HifiGan = None,
-        original_waveform_length: int = 0,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
-        encoder_hidden_states_1: Optional[torch.Tensor] = None,
-        eps: float = 1e-8,
-    ) -> Union[InverseProblemSchedulerOutput, Tuple]:
-
-        with torch.enable_grad():
-            sample = sample.clone().detach().requires_grad_(True)
-            pred_original_sample = super().step(
-                model_output=model_output,
-                timestep=timestep,
-                sample=sample,
-                eta=eta,
-                use_clipped_model_output=use_clipped_model_output,
-                generator=generator,
-                variance_noise=variance_noise,
-                return_dict=return_dict,
-            ).pred_original_sample
-
-            # Supervise on mel_spectrogram
-            pred_mel_spectrogram = vae.decode(
-                1 / vae.config.scaling_factor * pred_original_sample
-            ).sample
-
-            pred_audio = self.operator.inverse_transform(pred_mel_spectrogram, vocoder)
-            pred_audio = pred_audio[:, :original_waveform_length]
-
-            pred_audio = self.operator.forward(pred_audio)
-
-            # with VMC
-            ref_mel = self.operator.transform(measurement)
-            pred_mel = self.operator.transform(pred_audio)
-            difference = ref_mel - pred_mel
-
-            # without VMC
-            # difference = measurement - pred_audio
-
-            distance = torch.linalg.norm(difference)
-            norm_grad = torch.autograd.grad(outputs=distance, inputs=sample)[0]
-            sample = sample.detach()
-            sample -= learning_rate * norm_grad
-            sample_norm = torch.linalg.norm(sample)
-
-            timesteps_prev = timestep - self.config.num_train_timesteps // self.num_inference_steps
-            variance = self._get_variance(timestep, timesteps_prev)
-
-            eta = 0.5
-            std_dev_t = eta * variance ** 0.5
-            _, c, h, w = sample.shape
-
-            r = torch.sqrt(torch.tensor(c * h * w)) * std_dev_t
-
-            sample = r * sample / (sample_norm + eps)
-
-        return InverseProblemSchedulerOutput(
-            sample=sample.detach(),
-            pred_original_sample=pred_original_sample,
-            loss=distance.detach(),
-            encoder_hidden_states=encoder_hidden_states.detach(),
-            encoder_hidden_states_1=encoder_hidden_states_1.detach(),
-        )
-
     @staticmethod
     def slerp(x0, x1, gamma=0.008, threshold=0.9995):
         cos_theta = ((x0 / torch.norm(x0)) * (x1 / torch.norm(x1))).sum()
@@ -144,30 +68,31 @@ class DiffMusicScheduler(DDIMScheduler):
         return w0 * x0 + w1 * x1
 
     def optim_prompt(
-        self,
-        model_output: torch.Tensor,
-        timestep: int,
-        sample: torch.Tensor,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
-        encoder_hidden_states_1: Optional[torch.Tensor] = None,
-        eta: float = 0.0,
-        use_clipped_model_output: bool = False,
-        generator: Optional[torch.Generator] = None,
-        variance_noise: Optional[torch.Tensor] = None,
-        return_dict: bool = True,
-        measurement: Optional[torch.Tensor] = None,  # ref_wav
-        vae: AutoencoderKL = None,
-        vocoder: SpeechT5HifiGan = None,
-        original_waveform_length: int = 0,
-        learning_rate: float = 1e-4,
-        eps: float = 1e-8,
-        supervised_space: str = "mel_spectrogram",
+            self,
+            model_output: torch.Tensor,
+            timestep: int,
+            sample: torch.Tensor,
+            encoder_hidden_states: Optional[torch.Tensor] = None,
+            encoder_hidden_states_1: Optional[torch.Tensor] = None,
+            eta: float = 0.0,
+            use_clipped_model_output: bool = False,
+            generator: Optional[torch.Generator] = None,
+            variance_noise: Optional[torch.Tensor] = None,
+            return_dict: bool = True,
+            measurement: Optional[torch.Tensor] = None,  # ref_wav
+            vae: AutoencoderKL = None,
+            vocoder: SpeechT5HifiGan = None,
+            original_waveform_length: int = 0,
+            optim_prompt_learning_rate: float = 1e-4,
+            supervised_space: str = "mel_spectrogram",
     ) -> Union[InverseProblemSchedulerOutput, Tuple]:
         """
         Update prompt embedding
         """
-        optimizer = torch.optim.SGD([encoder_hidden_states], lr=learning_rate)
-        grad_scaler = GradScaler()
+        if encoder_hidden_states is not None:
+            optimizer = torch.optim.SGD([encoder_hidden_states, encoder_hidden_states_1], lr=optim_prompt_learning_rate)
+        else:
+            optimizer = torch.optim.SGD([encoder_hidden_states_1], lr=optim_prompt_learning_rate)
 
         with torch.enable_grad():
             for _ in range(1):
@@ -200,24 +125,25 @@ class DiffMusicScheduler(DDIMScheduler):
                 else:
                     raise ValueError("supervised_space should be either 'wav_form' or 'mel_spectrogram")
 
-                with torch.cuda.amp.autocast():
-                    distance = torch.linalg.norm(difference)
-                grad_scaler.scale(distance).backward()
-                torch.nn.utils.clip_grad_norm_(encoder_hidden_states, max_norm=1)
+                rec_loss = torch.linalg.norm(difference)
+                rec_loss.backward()
+                optimizer.step()
 
-        return InverseProblemSchedulerOutput(
-            loss=distance.detach(),
-            encoder_hidden_states=encoder_hidden_states.detach(),
-            encoder_hidden_states_1=encoder_hidden_states_1.detach(),
-        )
+        if encoder_hidden_states is not None:
+            return InverseProblemSchedulerOutput(
+                encoder_hidden_states=encoder_hidden_states.detach(),
+                encoder_hidden_states_1=encoder_hidden_states_1.detach(),
+            )
+        else:
+            return InverseProblemSchedulerOutput(
+                encoder_hidden_states_1=encoder_hidden_states_1.detach(),
+            )
 
     def step(
         self,
         model_output: torch.Tensor,
         timestep: int,
         sample: torch.Tensor,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
-        encoder_hidden_states_1: Optional[torch.Tensor] = None,
         eta: float = 0.0,
         use_clipped_model_output: bool = False,
         generator: Optional[torch.Generator] = None,
@@ -285,7 +211,7 @@ class DiffMusicScheduler(DDIMScheduler):
                 dtype=model_output.dtype,
             )
             sample_noise_norm = torch.linalg.norm(sample_noise)
-            normalized_grad =  grad / (grad_norm + eps) * sample_noise_norm
+            normalized_grad = grad / (grad_norm + eps) * sample_noise_norm
             mixed_epsion = self.slerp(sample_noise, -normalized_grad, ip_guidance_rate)
             prev_sample = prev_sample_mean + std_dev_t * mixed_epsion
 
@@ -293,6 +219,4 @@ class DiffMusicScheduler(DDIMScheduler):
             prev_sample=prev_sample.detach(),
             pred_original_sample=pred_original_sample,
             loss=rec_loss.detach(),
-            encoder_hidden_states=encoder_hidden_states.detach(),
-            encoder_hidden_states_1=encoder_hidden_states_1.detach(),
         )
