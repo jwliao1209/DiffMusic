@@ -1,0 +1,13 @@
+name: music_data
+type: wav
+root: ./music_data/
+sample_rate: 16000
+n_fft: 1024
+hop_length: 160
+win_length: 1024
+n_mels: 64
+power: 2.0
+start_s: 0
+end_s: 5
+start_inpainting_s: 2
+end_inpainting_s: 3
