@@ -1,9 +1,10 @@
 #!/bin/bash
 
 config_names=(
-#    "dps"
-#    "mpgd"
-#    "dsg"
+    # "dps"
+    # "mpgd"
+    # "dsg"
+    # "ditto"
     "diffmusic"
 )
 
@@ -24,11 +25,10 @@ instruments=(
 #    "wind"
 )
 
-prompt=""  # "music of a $instrument"
-
 for config_name in "${config_names[@]}"; do
     for task in "${tasks[@]}"; do
         for instrument in "${instruments[@]}"; do
+            prompt="music of a $instrument"
             echo "=================================================="
             echo "Running task: $task with config: $config"
             echo "Scheduler   : $config_name"

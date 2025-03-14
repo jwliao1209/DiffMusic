@@ -4,9 +4,11 @@ defaults:
   - data: moises
   - model: audioldm2  # audioldm2, musicldm
   - inverse_problem: music_inpainting
+  - _self_
 
 scheduler:
   eta: 0.
   ip_guidance_rate: 0.0005
   optim_prompt: false
   optim_prompt_learning_rate: 1e-4
+  optim_outer_loop: 1

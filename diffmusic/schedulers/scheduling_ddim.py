@@ -71,6 +71,8 @@ class DDIMScheduler(DDIMScheduler):
         original_waveform_length: int = 0,
         encoder_hidden_states: Optional[torch.Tensor] = None,
         encoder_hidden_states_1: Optional[torch.Tensor] = None,
+        *args,
+        **kwargs,
     ) -> Union[InverseProblemSchedulerOutput, Tuple]:
 
         timesteps_prev = timestep - self.config.num_train_timesteps // self.num_inference_steps

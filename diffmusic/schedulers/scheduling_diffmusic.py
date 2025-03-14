@@ -68,33 +68,39 @@ class DiffMusicScheduler(DDIMScheduler):
         return w0 * x0 + w1 * x1
 
     def optim_prompt(
-            self,
-            model_output: torch.Tensor,
-            timestep: int,
-            sample: torch.Tensor,
-            encoder_hidden_states: Optional[torch.Tensor] = None,
-            encoder_hidden_states_1: Optional[torch.Tensor] = None,
-            eta: float = 0.0,
-            use_clipped_model_output: bool = False,
-            generator: Optional[torch.Generator] = None,
-            variance_noise: Optional[torch.Tensor] = None,
-            return_dict: bool = True,
-            measurement: Optional[torch.Tensor] = None,  # ref_wav
-            vae: AutoencoderKL = None,
-            vocoder: SpeechT5HifiGan = None,
-            original_waveform_length: int = 0,
-            optim_prompt_learning_rate: float = 1e-4,
-            supervised_space: str = "mel_spectrogram",
+        self,
+        model_output: torch.Tensor,
+        timestep: int,
+        sample: torch.Tensor,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        encoder_hidden_states_1: Optional[torch.Tensor] = None,
+        eta: float = 0.0,
+        use_clipped_model_output: bool = False,
+        generator: Optional[torch.Generator] = None,
+        variance_noise: Optional[torch.Tensor] = None,
+        return_dict: bool = True,
+        measurement: Optional[torch.Tensor] = None,  # ref_wav
+        vae: AutoencoderKL = None,
+        vocoder: SpeechT5HifiGan = None,
+        original_waveform_length: int = 0,
+        optim_prompt_learning_rate: float = 1e-4,
+        supervised_space: str = "mel_spectrogram",
     ) -> Union[InverseProblemSchedulerOutput, Tuple]:
         """
         Update prompt embedding
         """
+
         if encoder_hidden_states is not None:
             optimizer = torch.optim.SGD([encoder_hidden_states, encoder_hidden_states_1], lr=optim_prompt_learning_rate)
         else:
             optimizer = torch.optim.SGD([encoder_hidden_states_1], lr=optim_prompt_learning_rate)
 
         with torch.enable_grad():
+            if encoder_hidden_states is not None:
+                encoder_hidden_states.clone().detach().requires_grad_(True)
+            if encoder_hidden_states_1 is not None:
+                encoder_hidden_states_1.clone().detach().requires_grad_(True)
+
             for _ in range(1):
                 optimizer.zero_grad()
                 pred_original_sample = super().step(
@@ -156,11 +162,12 @@ class DiffMusicScheduler(DDIMScheduler):
         ip_guidance_rate: float = 0.08,
         eps: float = 1e-8,
         supervised_space: str = "mel_spectrogram",
+        *args,
+        **kwargs,
     ) -> Union[InverseProblemSchedulerOutput, Tuple]:
         """
         Update music latent
         """
-
         timesteps_prev = timestep - self.config.num_train_timesteps // self.num_inference_steps
         alpha_prod_t_prev = self.alphas_cumprod[timesteps_prev] if timesteps_prev >= 0 else self.final_alpha_cumprod
         variance = self._get_variance(timestep, timesteps_prev)

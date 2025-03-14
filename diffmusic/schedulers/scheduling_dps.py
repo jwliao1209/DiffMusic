@@ -61,23 +61,25 @@ class DPSScheduler(DDIMScheduler):
         self.operator = operator
 
     def optim_prompt(
-            self,
-            model_output: torch.Tensor,
-            timestep: int,
-            sample: torch.Tensor,
-            encoder_hidden_states: Optional[torch.Tensor] = None,
-            encoder_hidden_states_1: Optional[torch.Tensor] = None,
-            eta: float = 0.0,
-            use_clipped_model_output: bool = False,
-            generator: Optional[torch.Generator] = None,
-            variance_noise: Optional[torch.Tensor] = None,
-            return_dict: bool = True,
-            measurement: Optional[torch.Tensor] = None,  # ref_wav
-            vae: AutoencoderKL = None,
-            vocoder: SpeechT5HifiGan = None,
-            original_waveform_length: int = 0,
-            optim_prompt_learning_rate: float = 1e-4,
-            supervised_space: str = "mel_spectrogram",
+        self,
+        model_output: torch.Tensor,
+        timestep: int,
+        sample: torch.Tensor,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        encoder_hidden_states_1: Optional[torch.Tensor] = None,
+        eta: float = 0.0,
+        use_clipped_model_output: bool = False,
+        generator: Optional[torch.Generator] = None,
+        variance_noise: Optional[torch.Tensor] = None,
+        return_dict: bool = True,
+        measurement: Optional[torch.Tensor] = None,  # ref_wav
+        vae: AutoencoderKL = None,
+        vocoder: SpeechT5HifiGan = None,
+        original_waveform_length: int = 0,
+        optim_prompt_learning_rate: float = 1e-4,
+        supervised_space: str = "mel_spectrogram",
+        *args,
+        **kwargs,
     ) -> Union[InverseProblemSchedulerOutput, Tuple]:
         """
         Update prompt embedding
@@ -88,6 +90,11 @@ class DPSScheduler(DDIMScheduler):
             optimizer = torch.optim.SGD([encoder_hidden_states_1], lr=optim_prompt_learning_rate)
 
         with torch.enable_grad():
+            if encoder_hidden_states is not None:
+                encoder_hidden_states.clone().detach().requires_grad_(True)
+            if encoder_hidden_states_1 is not None:
+                encoder_hidden_states_1.clone().detach().requires_grad_(True)
+
             for _ in range(1):
                 optimizer.zero_grad()
                 pred_original_sample = super().step(
@@ -143,6 +150,8 @@ class DPSScheduler(DDIMScheduler):
         vocoder: SpeechT5HifiGan = None,
         original_waveform_length: int = 0,
         supervised_space: str = "mel_spectrogram",
+        *args,
+        **kwargs,
     ) -> Union[InverseProblemSchedulerOutput, Tuple]:
 
         timesteps_prev = timestep - self.config.num_train_timesteps // self.num_inference_steps

@@ -1,4 +1,4 @@
-name: diffmusic
+name: ditto
 
 defaults:
   - data: moises
@@ -7,8 +7,12 @@ defaults:
   - _self_
 
 scheduler:
-  eta: 1.0
-  ip_guidance_rate: 0.08
+  eta: 1
+  ip_guidance_rate: 0.5
   optim_prompt: false
-  optim_prompt_learning_rate: 5e-5
-  optim_outer_loop: 1
+  optim_prompt_learning_rate: 1e-4
+  optim_outer_loop: 100
+
+model:
+  pipe:
+    num_inference_steps: 20

@@ -26,7 +26,7 @@ from diffmusic.constants import (
     AUDIOLDM2, MUSICLDM,
     MUSIC_GENERATION, MUSIC_INPAINTING, SUPER_RESOLUTION,
     PHASE_RETREVAL, MUSIC_DEREVERBERATION, STYLE_GUIDANCE,
-    DDIM, DPS, MPGD, DSG, DIFFMUSIC,
+    DDIM, DPS, MPGD, DSG, DIFFMUSIC, DITTO,
 )
 
 
@@ -42,6 +42,7 @@ def parse_arguments() -> Namespace:
             DPS,
             MPGD,
             DSG,
+            DITTO,
             DIFFMUSIC,
         ],
     )
@@ -100,7 +101,7 @@ def parse_arguments() -> Namespace:
 
 def main() -> None:
     args = parse_arguments()
-    with initialize(config_path=CONFIG_PATH):
+    with initialize(config_path=CONFIG_PATH, version_base="1.1"):
         config = compose(config_name=args.config_name)
 
     output_dir = Path("outputs", config.model.name, args.config_name, args.task)
@@ -264,6 +265,7 @@ def main() -> None:
             optim_prompt_learning_rate=config.scheduler.optim_prompt_learning_rate,
             generator=generator,
             optim_prompt=config.scheduler.optim_prompt,
+            optim_outer_loop=config.scheduler.optim_outer_loop,
             **config.model.pipe,
         ).audios
 
@@ -311,7 +313,6 @@ def main() -> None:
         #         audio[0].T.float().cpu().numpy(),
         #         pipe.vae.sampling_rate,
         #     )
-
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,5 @@
 name: audioldm2
-repo_id: cvssp/audioldm2  # audioldm2, audioldm2-music
+repo_id: cvssp/audioldm2-music #cvssp/audioldm2  # audioldm2, audioldm2-music
 pipe:
   num_inference_steps: 500
   audio_length_in_s: 5

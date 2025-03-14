@@ -13,10 +13,10 @@ from ..inverse_problem.operator import BaseOperator
 from ..torch_utils import randn_tensor
 
 
-class MPGDScheduler(DDIMScheduler):
+class DITTOScheduler(DDIMScheduler):
     '''
-    Manifold Preserving Guided Diffusion
-    ref: https://arxiv.org/abs/2311.16424
+    Diffusion Posterior Sampling for General Noisy Inverse Problems
+    ref: https://arxiv.org/abs/2209.14687
     '''
 
     @register_to_config
@@ -61,25 +61,23 @@ class MPGDScheduler(DDIMScheduler):
         self.operator = operator
 
     def optim_prompt(
-        self,
-        model_output: torch.Tensor,
-        timestep: int,
-        sample: torch.Tensor,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
-        encoder_hidden_states_1: Optional[torch.Tensor] = None,
-        eta: float = 0.0,
-        use_clipped_model_output: bool = False,
-        generator: Optional[torch.Generator] = None,
-        variance_noise: Optional[torch.Tensor] = None,
-        return_dict: bool = True,
-        measurement: Optional[torch.Tensor] = None,  # ref_wav
-        vae: AutoencoderKL = None,
-        vocoder: SpeechT5HifiGan = None,
-        original_waveform_length: int = 0,
-        optim_prompt_learning_rate: float = 1e-4,
-        supervised_space: str = "mel_spectrogram",
-        *args,
-        **kwargs,
+            self,
+            model_output: torch.Tensor,
+            timestep: int,
+            sample: torch.Tensor,
+            encoder_hidden_states: Optional[torch.Tensor] = None,
+            encoder_hidden_states_1: Optional[torch.Tensor] = None,
+            eta: float = 0.0,
+            use_clipped_model_output: bool = False,
+            generator: Optional[torch.Generator] = None,
+            variance_noise: Optional[torch.Tensor] = None,
+            return_dict: bool = True,
+            measurement: Optional[torch.Tensor] = None,  # ref_wav
+            vae: AutoencoderKL = None,
+            vocoder: SpeechT5HifiGan = None,
+            original_waveform_length: int = 0,
+            optim_prompt_learning_rate: float = 1e-4,
+            supervised_space: str = "mel_spectrogram",
     ) -> Union[InverseProblemSchedulerOutput, Tuple]:
         """
         Update prompt embedding
@@ -90,11 +88,6 @@ class MPGDScheduler(DDIMScheduler):
             optimizer = torch.optim.SGD([encoder_hidden_states_1], lr=optim_prompt_learning_rate)
 
         with torch.enable_grad():
-            if encoder_hidden_states is not None:
-                encoder_hidden_states.clone().detach().requires_grad_(True)
-            if encoder_hidden_states_1 is not None:
-                encoder_hidden_states_1.clone().detach().requires_grad_(True)
-
             for _ in range(1):
                 optimizer.zero_grad()
                 pred_original_sample = super().step(
@@ -145,11 +138,12 @@ class MPGDScheduler(DDIMScheduler):
         variance_noise: Optional[torch.Tensor] = None,
         return_dict: bool = True,
         measurement: Optional[torch.Tensor] = None,  # ref_wav
-        ip_guidance_rate: float = 1.0,
         vae: AutoencoderKL = None,
         vocoder: SpeechT5HifiGan = None,
         original_waveform_length: int = 0,
         supervised_space: str = "mel_spectrogram",
+        ditto_optimizer: torch.optim.Optimizer = None,
+        init_latents: Optional[torch.Tensor] = None,
         *args,
         **kwargs,
     ) -> Union[InverseProblemSchedulerOutput, Tuple]:
@@ -172,33 +166,6 @@ class MPGDScheduler(DDIMScheduler):
             return_dict=return_dict,
         ).pred_original_sample
 
-        with torch.enable_grad():
-            pred_original_sample = pred_original_sample.clone().detach().requires_grad_(True)
-
-            # Supervise on mel_spectrogram
-            pred_mel_spectrogram = vae.decode(
-                1 / vae.config.scaling_factor * pred_original_sample
-            ).sample
-
-            pred_audio = self.operator.inverse_transform(pred_mel_spectrogram, vocoder)
-            pred_audio = pred_audio[:, :original_waveform_length]
-            pred_audio = self.operator.forward(pred_audio)
-            
-            if supervised_space == "wav_form":
-                difference = measurement - pred_audio
-            elif supervised_space == "mel_spectrogram":
-                ref_mel = self.operator.transform(measurement)
-                pred_mel = self.operator.transform(pred_audio)
-                difference = ref_mel - pred_mel
-            else:
-                raise ValueError("supervised_space should be either 'wav_form' or 'mel_spectrogram")
-
-            rec_loss = torch.linalg.norm(difference)
-            norm_grad = torch.autograd.grad(outputs=rec_loss, inputs=pred_original_sample)[0]
-
-            pred_original_sample = pred_original_sample.detach()
-            pred_original_sample -= ip_guidance_rate * norm_grad
-
         noise_pred = (sample - (alpha_prod_t ** 0.5) * pred_original_sample) / (beta_prod_t ** 0.5)
         pred_sample_direction = ((1 - alpha_prod_t_prev - std_dev_t ** 2) ** 0.5) * noise_pred
         prev_sample = (alpha_prod_t_prev ** 0.5) * pred_original_sample + pred_sample_direction
@@ -217,8 +184,31 @@ class MPGDScheduler(DDIMScheduler):
             variance = std_dev_t * variance_noise
             prev_sample = prev_sample + variance
 
+        pred_mel_spectrogram = vae.decode(
+            1 / vae.config.scaling_factor * prev_sample
+        ).sample
+        pred_audio = self.operator.inverse_transform(pred_mel_spectrogram, vocoder)
+        pred_audio = pred_audio[:, :original_waveform_length]
+        pred_audio = self.operator.forward(pred_audio)
+
+        if supervised_space == "wav_form":
+            difference = measurement - pred_audio
+        elif supervised_space == "mel_spectrogram":
+            ref_mel = self.operator.transform(measurement)
+            pred_mel = self.operator.transform(pred_audio)
+            difference = ref_mel - pred_mel
+        else:
+            raise ValueError("supervised_space should be either 'wav_form' or 'mel_spectrogram")
+
+        rec_loss = torch.linalg.norm(difference)
+
+        if timestep == 1:
+            rec_loss.backward()
+            torch.nn.utils.clip_grad_norm_([init_latents], max_norm=100.0)
+            ditto_optimizer.step()
+
         return InverseProblemSchedulerOutput(
-            prev_sample=prev_sample.detach(),
+            prev_sample=prev_sample,
             pred_original_sample=pred_original_sample,
             loss=rec_loss.detach(),
         )
