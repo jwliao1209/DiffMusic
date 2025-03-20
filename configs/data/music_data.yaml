@@ -1,6 +1,6 @@
-name: music_data
+name: musiccaps
 type: wav
-root: ./music_data/
+root: ./data/musiccaps_subset
 sample_rate: 16000
 n_fft: 1024
 hop_length: 160

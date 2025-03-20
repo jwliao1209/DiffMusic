@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -510,7 +511,9 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
         measurement: Optional[torch.Tensor] = None,
         optim_prompt: bool = False,
         ip_guidance_rate: float = 1.0,
-        optim_prompt_learning_rate: float = 1e-4
+        optim_prompt_learning_rate: float = 1e-4,
+        optim_outer_loop: int = 1,
+        show_progress: bool = True,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -668,32 +671,56 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
         # 7. Denoising loop
         init_prompt_embeds = prompt_embeds.clone()
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
+
         with torch.enable_grad():
-            while True:
-                is_done = True
-                with self.progress_bar(total=num_inference_steps) as progress_bar:
-                    for i, t in enumerate(timesteps):
-                        # expand the latents if we are doing classifier free guidance
-                        latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                        latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+            init_latents = latents.detach().clone().requires_grad_(True)
+            ditto_optimizer = torch.optim.SGD([init_latents], lr=ip_guidance_rate)
 
-                        # predict the noise residual
-                        noise_pred = self.unet(
-                            latent_model_input,
-                            t,
-                            encoder_hidden_states=None,
-                            class_labels=prompt_embeds,
-                            cross_attention_kwargs=cross_attention_kwargs,
-                            return_dict=False,
-                        )[0]
+            for _ in range(optim_outer_loop):
+                latents = init_latents
+                ditto_optimizer.zero_grad()
 
-                        # perform guidance
-                        if do_classifier_free_guidance:
-                            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                while True:
+                    is_done = True
+                    progress_bar = self.progress_bar(total=num_inference_steps) if show_progress else None
+                    with progress_bar if show_progress else contextlib.nullcontext():
+                        for i, t in enumerate(timesteps):
+                            # expand the latents if we are doing classifier free guidance
+                            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                        if optim_prompt and t.item() % 30 == 1:
-                            out = self.scheduler.optim_prompt(
+                            # predict the noise residual
+                            noise_pred = self.unet(
+                                latent_model_input,
+                                t,
+                                encoder_hidden_states=None,
+                                class_labels=prompt_embeds,
+                                cross_attention_kwargs=cross_attention_kwargs,
+                                return_dict=False,
+                            )[0]
+
+                            # perform guidance
+                            if do_classifier_free_guidance:
+                                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+                            if optim_prompt and t.item() % 30 == 1:
+                                out = self.scheduler.optim_prompt(
+                                    noise_pred,
+                                    t,
+                                    latents,
+                                    measurement=measurement,
+                                    original_waveform_length=original_waveform_length,
+                                    vae=self.vae,
+                                    vocoder=self.vocoder,
+                                    encoder_hidden_states_1=prompt_embeds,
+                                    optim_prompt_learning_rate=optim_prompt_learning_rate,
+                                    **extra_step_kwargs,
+                                )
+                                prompt_embeds = out.encoder_hidden_states_1.detach()
+
+                            # compute the previous noisy sample x_t -> x_t-1
+                            out = self.scheduler.step(
                                 noise_pred,
                                 t,
                                 latents,
@@ -701,52 +728,37 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
                                 original_waveform_length=original_waveform_length,
                                 vae=self.vae,
                                 vocoder=self.vocoder,
-                                encoder_hidden_states_1=prompt_embeds,
-                                optim_prompt_learning_rate=optim_prompt_learning_rate,
+                                ip_guidance_rate=ip_guidance_rate,
                                 **extra_step_kwargs,
                             )
-                            prompt_embeds = out.encoder_hidden_states_1.detach()
 
-                        # compute the previous noisy sample x_t -> x_t-1
-                        out = self.scheduler.step(
-                            noise_pred,
-                            t,
-                            latents,
-                            measurement=measurement,
-                            original_waveform_length=original_waveform_length,
-                            vae=self.vae,
-                            vocoder=self.vocoder,
-                            ip_guidance_rate=ip_guidance_rate,
-                            **extra_step_kwargs,
-                        )
+                            # Check if distance is nan
+                            if torch.isnan(out.loss):
+                                logger.warning(f"Detected nan in distance at step {i}. Reinitializing latents and restarting.")
+                                latents = self.prepare_latents(
+                                    batch_size * num_waveforms_per_prompt,
+                                    num_channels_latents,
+                                    height,
+                                    prompt_embeds.dtype,
+                                    device,
+                                    generator,
+                                    latents=None,  # Reset latents
+                                )
+                                is_done = False
+                                prompt_embeds = init_prompt_embeds.clone()
+                                break  # Restart the denoising loop
 
-                        # Check if distance is nan
-                        if torch.isnan(out.loss):
-                            logger.warning(f"Detected nan in distance at step {i}. Reinitializing latents and restarting.")
-                            latents = self.prepare_latents(
-                                batch_size * num_waveforms_per_prompt,
-                                num_channels_latents,
-                                height,
-                                prompt_embeds.dtype,
-                                device,
-                                generator,
-                                latents=None,  # Reset latents
-                            )
-                            is_done = False
-                            prompt_embeds = init_prompt_embeds.clone()
-                            break  # Restart the denoising loop
+                            latents = out.prev_sample.detach()
 
-                        latents = out.prev_sample.detach()
-
-                        # call the callback, if provided
-                        if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-                            progress_bar.set_description("distance: {:.6f}".format(out.loss.item()))
-                            progress_bar.update()
-                            if callback is not None and i % callback_steps == 0:
-                                step_idx = i // getattr(self.scheduler, "order", 1)
-                                callback(step_idx, t, latents)
-                    if is_done:
-                        break
+                            # call the callback, if provided
+                            if show_progress and (i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0)):
+                                progress_bar.set_description("distance: {:.6f}".format(out.loss.item()))
+                                progress_bar.update()
+                                if callback is not None and i % callback_steps == 0:
+                                    step_idx = i // getattr(self.scheduler, "order", 1)
+                                    callback(step_idx, t, latents)
+                        if is_done:
+                            break
 
         self.maybe_free_model_hooks()
 

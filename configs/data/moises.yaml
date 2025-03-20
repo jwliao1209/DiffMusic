@@ -1,6 +1,6 @@
 name: moises
-type: wav  # wav, mp3
-root: ./data/clips_inst_sample  # [bass, bowed_strings, drums, guitar, percussion, piano, wind]
+type: wav
+root: ./data/moises_subset
 sample_rate: 16000
 n_fft: 1024
 hop_length: 160

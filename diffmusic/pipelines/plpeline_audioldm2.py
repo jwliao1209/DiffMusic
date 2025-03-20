@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -933,6 +934,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
         ip_guidance_rate: float = 1.0,
         optim_prompt_learning_rate: float = 1e-4,
         optim_outer_loop: int = 1,
+        show_progress: bool = True,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -1105,7 +1107,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
 
         with torch.enable_grad():
             init_latents = latents.detach().clone().requires_grad_(True)
-            ditto_optimizer = torch.optim.SGD([init_latents], lr=ip_guidance_rate)#ip_guidance_rate)
+            ditto_optimizer = torch.optim.SGD([init_latents], lr=ip_guidance_rate)
 
             for _ in range(optim_outer_loop):
                 latents = init_latents
@@ -1113,8 +1115,8 @@ class AudioLDM2Pipeline(DiffusionPipeline):
 
                 while True:
                     is_done = True
-                    with self.progress_bar(total=num_inference_steps) as progress_bar:
-
+                    progress_bar = self.progress_bar(total=num_inference_steps) if show_progress else None
+                    with progress_bar if show_progress else contextlib.nullcontext():
                         for i, t in enumerate(timesteps):
                             # expand the latents if we are doing classifier free guidance
                             latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
@@ -1188,7 +1190,7 @@ class AudioLDM2Pipeline(DiffusionPipeline):
                             latents = out.prev_sample
 
                             # call the callback, if provided
-                            if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                            if show_progress and (i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0)):
                                 progress_bar.set_description("distance: {:.6f}".format(out.loss.item()))
                                 progress_bar.update()
                                 if callback is not None and i % callback_steps == 0:

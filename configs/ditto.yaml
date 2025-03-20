@@ -1,8 +1,8 @@
 name: ditto
 
 defaults:
-  - data: moises
-  - model: audioldm2  # audioldm2, musicldm
+  - data: music_data  # moises, music_data
+  - model: musicldm  # audioldm2, musicldm
   - inverse_problem: music_inpainting
   - _self_
 

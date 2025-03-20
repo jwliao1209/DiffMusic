@@ -60,7 +60,9 @@ def load_audio_files(
 
     if verbose:
         print("[Kullback-Leibler Divergence] Loading audio from {}...".format(dir))
-    for fname in os.listdir(dir):
+
+    files = [f for f in os.listdir(dir) if os.path.isfile(os.path.join(dir, f))]
+    for fname in files:
         res = pool.apply_async(
             load_audio_task,
             args=(os.path.join(dir, fname), sample_rate, channels, dtype),

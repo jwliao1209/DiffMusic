@@ -28,6 +28,9 @@ from diffmusic.constants import (
     PHASE_RETREVAL, MUSIC_DEREVERBERATION, STYLE_GUIDANCE,
     DDIM, DPS, MPGD, DSG, DIFFMUSIC, DITTO,
 )
+import warnings
+
+warnings.filterwarnings("ignore")
 
 
 def parse_arguments() -> Namespace:
@@ -45,12 +48,6 @@ def parse_arguments() -> Namespace:
             DITTO,
             DIFFMUSIC,
         ],
-    )
-    parser.add_argument(
-        "--instrument",
-        type=str,
-        default="bass",
-        choices=["bass", "bowed_strings", "drums", "guitar", "percussion", "piano", "wind"],
     )
     parser.add_argument(
         "-t",
@@ -96,6 +93,11 @@ def parse_arguments() -> Namespace:
         default="",
         help="Transcription for Text-to-Speech",
     )
+    parser.add_argument(
+        "--show_progress",
+        action="store_true",
+        help="Show Progress",
+    )
     return parser.parse_args()
 
 
@@ -104,7 +106,7 @@ def main() -> None:
     with initialize(config_path=CONFIG_PATH, version_base="1.1"):
         config = compose(config_name=args.config_name)
 
-    output_dir = Path("outputs", config.model.name, args.config_name, args.task)
+    output_dir = Path("outputs", config.model.name, config.data.name, args.config_name, args.task)
     for d in ["wav_input", "wav_recon", "wav_label", "mel_input", "mel_recon", "mel_label"]:
         os.makedirs(Path(output_dir, d), exist_ok=True)
 
@@ -192,7 +194,7 @@ def main() -> None:
     dataset = get_dataset(
         name=config.data.name,
         type=config.data.type,
-        root=os.path.join(config.data.root, args.instrument),
+        root=config.data.root,
         sample_rate=config.data.sample_rate,
         audio_length_in_s=config.model.pipe.audio_length_in_s,
         start_s=config.data.start_s,
@@ -201,17 +203,28 @@ def main() -> None:
     )
 
     loader = get_dataloader(dataset, batch_size=1, num_workers=0, train=False)
-    print('Number of samples: ', len(loader))
+
+    print("==================================================")
+    print("| Model             : {}".format(config.model.name))
+    print("| Data              : {}".format(config.data.name))
+    print("| Task              : {}".format(args.task))
+    print("| Scheduler         : {}".format(args.config_name))
+    print("| Prompt            : '{}'".format(args.prompt))
+    print("| Show Progress     : {}".format(args.show_progress))
+    print('| Number of Samples : {}'.format(len(loader)))
+    print("==================================================")
 
     # run the generation
     for i, (data, file_name) in enumerate(loader, start=1):
+        print(f"=====> Inference for audio {i}")
+
         file_name = file_name[0]
 
         # Check if file already exists
-        # recon_path = Path(output_dir, 'wav_recon', file_name)
-        # if os.path.exists(recon_path):
-        #     print("File {} already exists. Skipping.".format(file_name))
-        #     continue
+        recon_path = Path(output_dir, 'wav_recon', file_name)
+        if os.path.exists(recon_path):
+            print("File {} already exists. Skipping.".format(file_name))
+            continue
 
         gt_wave = data
         gt_mel_spectrogram = wav2mel(gt_wave)
@@ -266,6 +279,7 @@ def main() -> None:
             generator=generator,
             optim_prompt=config.scheduler.optim_prompt,
             optim_outer_loop=config.scheduler.optim_outer_loop,
+            show_progress=args.show_progress,
             **config.model.pipe,
         ).audios
 
@@ -313,6 +327,7 @@ def main() -> None:
         #         audio[0].T.float().cpu().numpy(),
         #         pipe.vae.sampling_rate,
         #     )
+
 
 if __name__ == "__main__":
     main()

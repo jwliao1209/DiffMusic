@@ -9,14 +9,15 @@ schedulers=(
     "dps"
     "mpgd"
     "dsg"
+    "ditto"
     "diffmusic"
 )
 
 tasks=(
-    "music_inpainting"
-#    "super_resolution"
-#    "phase_retrieval"
-#    "music_dereverberation"
+#    "music_inpainting"
+    "super_resolution"
+    "phase_retrieval"
+    "music_dereverberation"
 )
 
 for model in "${models[@]}"; do

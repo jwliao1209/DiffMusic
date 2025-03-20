@@ -204,7 +204,7 @@ class DITTOScheduler(DDIMScheduler):
 
         if timestep == 1:
             rec_loss.backward()
-            torch.nn.utils.clip_grad_norm_([init_latents], max_norm=100.0)
+            # torch.nn.utils.clip_grad_norm_([init_latents], max_norm=100.0)
             ditto_optimizer.step()
 
         return InverseProblemSchedulerOutput(

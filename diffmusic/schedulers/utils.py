@@ -13,3 +13,4 @@ class InverseProblemSchedulerOutput(BaseOutput):
     loss: Optional[torch.Tensor] = None
     encoder_hidden_states: Optional[torch.Tensor] = None
     encoder_hidden_states_1: Optional[torch.Tensor] = None
+    init_latents: Optional[torch.Tensor] = None
