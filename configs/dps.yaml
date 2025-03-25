@@ -1,14 +1,14 @@
 name: dps
 
 defaults:
-  - data: music_data  # moises, music_data
+  - data: moises  # moises, music_data
   - model: musicldm  # audioldm2, musicldm
   - inverse_problem: music_inpainting
   - _self_
 
 scheduler:
   eta: 0.
-  ip_guidance_rate: 0.0002
+  ip_guidance_rate: 0.0005
   optim_prompt: false
   optim_prompt_learning_rate: 1e-4
   optim_outer_loop: 1

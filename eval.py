@@ -3,6 +3,7 @@ from argparse import ArgumentParser, Namespace
 from diffmusic.metrics.fad import FrechetAudioDistance
 from diffmusic.metrics.kl import KullbackLeiblerDivergence
 from diffmusic.metrics.lsd import LogSpectralDistance
+from diffmusic.metrics.mse import MeanSquaredError
 from diffmusic.utils import load_audio_files
 
 # For fadtk
@@ -53,15 +54,15 @@ if __name__ == "__main__":
     """
 
     fad_models = (
-        "clap-2023",
+        # "clap-2023",
         "clap-laion-audio",
         "clap-laion-music",
         "vggish",
-        "encodec-emb",
+        # "encodec-emb",
         "w2v2-base",
-        "hubert-base",
-        "wavlm-base",
-        "whisper-base"
+        # "hubert-base",
+        # "wavlm-base",
+        # "whisper-base"
     )
     fad_scores = {}
     models = {m.name: m for m in get_all_models()}
@@ -126,6 +127,7 @@ if __name__ == "__main__":
         hop_length=512,
         eps=1e-10,
     )
+    mse = MeanSquaredError(reduction='sum')
 
     fad_score = frechet.score(
         audio_background,
@@ -136,6 +138,10 @@ if __name__ == "__main__":
         audio_eval,
     )
     lsd_score = lsd.score(
+        audio_background,
+        audio_eval,
+    )
+    mse_score = mse.score(
         audio_background,
         audio_eval,
     )
@@ -150,9 +156,11 @@ if __name__ == "__main__":
         print(f"{fad_model.ljust(key_width)} : {score:.4f}")
 
     print("")
-    print("===> For FAD, LSD, KL score.")
+    print("===> For FAD, LSD, KL, and MSE score.")
     print(f"{'lsd_score'.ljust(key_width)} : {lsd_score:.4f}")
     print(f"{'fad_score'.ljust(key_width)} : {fad_score:.4f}")
     print(f"{'kl_score'.ljust(key_width)} : {kl_score:.4f}")
+    print(f"{'mse_score'.ljust(key_width)} : {mse_score:.4f}")
+
 
 

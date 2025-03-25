@@ -17,10 +17,8 @@ if [ ! -d "data" ]; then
 fi
 
 
-#if [ ! -d "data" ]; then
-#    Download moises_inst_subset data
-#    gdown 1ui0_9OmdiZBYIgGoyQHrw3KK-sFmvNT2 -O data.zip
-#    unzip -n data.zip
-#    rm data.zip
-#    mv moises_inst_subset data
-#fi
+# Download moises_inst_subset data
+# gdown 1ui0_9OmdiZBYIgGoyQHrw3KK-sFmvNT2 -O moises_inst_subset.zip
+# unzip -n moises_inst_subset.zip
+# rm moises_inst_subset.zip
+# mv moises_inst_subset data

@@ -514,6 +514,8 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
         optim_prompt_learning_rate: float = 1e-4,
         optim_outer_loop: int = 1,
         show_progress: bool = True,
+        prompt_type: str = None,
+        supervised_space: str = None,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -677,6 +679,7 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
             ditto_optimizer = torch.optim.SGD([init_latents], lr=ip_guidance_rate)
 
             for _ in range(optim_outer_loop):
+                retry = 10
                 latents = init_latents
                 ditto_optimizer.zero_grad()
 
@@ -729,11 +732,15 @@ class MusicLDMPipeline(DiffusionPipeline, StableDiffusionMixin):
                                 vae=self.vae,
                                 vocoder=self.vocoder,
                                 ip_guidance_rate=ip_guidance_rate,
+                                ditto_optimizer=ditto_optimizer,
+                                init_latents=init_latents,
+                                supervised_space=supervised_space,
                                 **extra_step_kwargs,
                             )
 
                             # Check if distance is nan
-                            if torch.isnan(out.loss):
+                            if torch.isnan(out.loss) and retry >= 0:
+                                retry -= 1
                                 logger.warning(f"Detected nan in distance at step {i}. Reinitializing latents and restarting.")
                                 latents = self.prepare_latents(
                                     batch_size * num_waveforms_per_prompt,

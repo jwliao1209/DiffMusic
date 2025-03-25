@@ -19,6 +19,7 @@ class LogSpectralDistance:
         audio_eval = np.array(audio_eval)
 
         # Compute STFT
+        audio_eval = np.nan_to_num(audio_eval, nan=0.0, posinf=1.0, neginf=-1.0)
         background_spectrogram = np.abs(librosa.stft(audio_background, n_fft=self.n_fft, hop_length=self.hop_length))
         eval_spectrogram = np.abs(librosa.stft(audio_eval, n_fft=self.n_fft, hop_length=self.hop_length))
 

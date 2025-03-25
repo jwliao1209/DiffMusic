@@ -1,11 +1,11 @@
 #!/bin/bash
 
 config_names=(
-    "dps"
-    "mpgd"
-    "dsg"
+#    "dps"
+#    "mpgd"
+#    "dsg"
     "ditto"
-    "diffmusic"
+#    "diffmusic"
 )
 
 tasks=(
@@ -16,14 +16,21 @@ tasks=(
 )
 
 show_progress=True
+supervised_space="mel_spectrogram"  # mel_spectrogram, wav_form
+prompt_type="null_text"  # null_text, tag, clap
 prompt=""
+gpu_id=1
+datasets="moises"  # moises, music_data
+model="musicldm"  # audioldm2, musicldm
 
 for config_name in "${config_names[@]}"; do
     for task in "${tasks[@]}"; do
         if [ "$show_progress" = "True" ]; then
-            CUDA_VISIBLE_DEVICES=8 python run.py -t "$task" -c "$config_name" --prompt "$prompt" --show_progress
+            CUDA_VISIBLE_DEVICES="$gpu_id" python run.py -t "$task" -c "$config_name" \
+            -d "$datasets" -m "$model" --supervised_space "$supervised_space" --prompt_type "$prompt_type" --prompt "$prompt" --show_progress
         else
-            CUDA_VISIBLE_DEVICES=8 python run.py -t "$task" -c "$config_name" --prompt "$prompt"
+            CUDA_VISIBLE_DEVICES="$gpu_id" nohup python -u run.py -t "$task" -c "$config_name" \
+            -d "$datasets" -m "$model" --supervised_space "$supervised_space" --prompt_type "$prompt_type" --prompt "$prompt" > outputs_"$gpu_id"_"$config_name"_tag.txt &
         fi
     done
 done

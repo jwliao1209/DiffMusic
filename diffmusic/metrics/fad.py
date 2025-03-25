@@ -140,6 +140,8 @@ class FrechetAudioDistance:
         diff = mu1 - mu2
 
         # Product might be almost singular
+        sigma1 = np.nan_to_num(sigma1, nan=0.0, posinf=1.0, neginf=-1.0)
+        sigma2 = np.nan_to_num(sigma2, nan=0.0, posinf=1.0, neginf=-1.0)
         covmean, _ = linalg.sqrtm(sigma1.dot(sigma2).astype(complex), disp=False)
         if not np.isfinite(covmean).all():
             msg = ("fid calculation produces singular product; "

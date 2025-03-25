@@ -1,7 +1,7 @@
 name: mpgd
 
 defaults:
-  - data: music_data  # moises, music_data
+  - data: moises  # moises, music_data
   - model: musicldm  # audioldm2, musicldm
   - inverse_problem: music_inpainting
   - _self_

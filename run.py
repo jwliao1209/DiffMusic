@@ -23,10 +23,13 @@ from diffmusic.inverse_problem.operator import (
 from diffmusic.schedulers import get_scheduler
 from diffmusic.utils import waveform_to_spectrogram
 from diffmusic.constants import (
-    AUDIOLDM2, MUSICLDM,
+    MOISES, MUSICCAPS, AUDIOLDM2, MUSICLDM,
     MUSIC_GENERATION, MUSIC_INPAINTING, SUPER_RESOLUTION,
     PHASE_RETREVAL, MUSIC_DEREVERBERATION, STYLE_GUIDANCE,
     DDIM, DPS, MPGD, DSG, DIFFMUSIC, DITTO,
+    # for ablation studies
+    NULL_TEXT, TAG, CLAP,
+    WAV_FORM, MEL_SPECTROGRAM,
 )
 import warnings
 
@@ -64,7 +67,26 @@ def parse_arguments() -> Namespace:
         ],
     )
     parser.add_argument(
+        "-d",
+        "--datasets",
+        type=str,
+        default=MOISES,
+        choices=[
+            MOISES,
+            MUSICCAPS,
+        ],
+    )
+    parser.add_argument(
         "-m",
+        "--model",
+        type=str,
+        default=AUDIOLDM2,
+        choices=[
+            AUDIOLDM2,
+            MUSICLDM,
+        ],
+    )
+    parser.add_argument(
         "--mask_type",
         type=str,
         default="box",
@@ -72,6 +94,25 @@ def parse_arguments() -> Namespace:
             "box",
             "random",
             "periodic",
+        ],
+    )
+    parser.add_argument(
+        "--supervised_space",
+        type=str,
+        default=MEL_SPECTROGRAM,
+        choices=[
+            WAV_FORM,
+            MEL_SPECTROGRAM,
+        ],
+    )
+    parser.add_argument(
+        "--prompt_type",
+        type=str,
+        default=NULL_TEXT,
+        choices=[
+            NULL_TEXT,
+            TAG,
+            CLAP
         ],
     )
     parser.add_argument(
@@ -104,7 +145,10 @@ def parse_arguments() -> Namespace:
 def main() -> None:
     args = parse_arguments()
     with initialize(config_path=CONFIG_PATH, version_base="1.1"):
-        config = compose(config_name=args.config_name)
+        config = compose(config_name=args.config_name, overrides=[
+            "data={}".format(args.datasets),
+            "model={}".format(args.model)
+        ])
 
     output_dir = Path("outputs", config.model.name, config.data.name, args.config_name, args.task)
     for d in ["wav_input", "wav_recon", "wav_label", "mel_input", "mel_recon", "mel_label"]:
@@ -209,6 +253,8 @@ def main() -> None:
     print("| Data              : {}".format(config.data.name))
     print("| Task              : {}".format(args.task))
     print("| Scheduler         : {}".format(args.config_name))
+    print("| Supervised Space  : {}".format(args.supervised_space))
+    print("| Prompt Type       : {}".format(args.prompt_type))
     print("| Prompt            : '{}'".format(args.prompt))
     print("| Show Progress     : {}".format(args.show_progress))
     print('| Number of Samples : {}'.format(len(loader)))
@@ -280,6 +326,8 @@ def main() -> None:
             optim_prompt=config.scheduler.optim_prompt,
             optim_outer_loop=config.scheduler.optim_outer_loop,
             show_progress=args.show_progress,
+            prompt_type=args.prompt_type,
+            supervised_space=args.supervised_space,
             **config.model.pipe,
         ).audios
 
