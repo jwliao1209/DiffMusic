@@ -1,4 +1,4 @@
-# DiffMusicIP: Exploring Conditional Diffusion Models Zero-shot Potential for Solving Music Inverse Problems
+# DiffMR: Training-Free Diffusion Spherical Linear Interpolation Guidance for Music Restoration
 
 This repository implement the diffusion-based framework for solving music inverse problems.
 
