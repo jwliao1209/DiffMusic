@@ -1,4 +1,4 @@
-# DiffMR: Training-Free Diffusion Spherical Linear Interpolation Guidance for Music Restoration
+# DiffMusic
 
 This repository implement the diffusion-based framework for solving music inverse problems.
 
