@@ -91,9 +91,9 @@ We implemented the code on an environment running Ubuntu 22.04.1, utilizing a 12
 If you use this code, please cite the following:
 ```bibtex
 @misc{liao2024_diffmusic,
-    title  = {DiffMusicIP: Exploring Conditional Diffusion Models Zero-shot Potential for Solving Music Inverse Problems},
+    title  = {DiffMusic: A Training-Free Diffusion Framework for Music Inverse Problem},
     author = {Jia-Wei Liao, Pin-Chi Pan, and Sheng-Ping Yang},
-    url    = {https://github.com/jwliao1209/DiffMusicIP},
+    url    = {https://github.com/jwliao1209/DiffMusic},
     year   = {2024}
 }
 ```
