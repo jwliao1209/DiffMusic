@@ -1,4 +1,4 @@
-# DiffMusic
+# DiffMusic: A Training-Free Diffusion Framework for Music Inverse Problem
 
 This repository implement the diffusion-based framework for solving music inverse problems.
 
